@@ -1,0 +1,12 @@
+# Python系の不要なファイル
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 仮想環境（もし作っていれば）
+venv/
+.venv/
+env/
+
+# Mac特有の隠しファイル
+.DS_Store
