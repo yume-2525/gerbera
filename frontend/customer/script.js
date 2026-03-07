@@ -349,11 +349,23 @@
       : (productInfo.name === '取得失敗' ? '取得失敗' : (productInfo.name.length > 14 ? productInfo.name.slice(0, 13) + '…' : productInfo.name));
     overlayCtx.fillText(nameText, 12, 24);
 
-    // ----- 3. 中央：価格表示（中央揃え。値引き時は元値を値引き後価格の左隣に描画） -----
+    // ----- 3. 中央：価格表示（期限切れ時はメッセージ、通常時は価格） -----
     const priceY = 72;
     const priceCenterX = TAG_WIDTH / 2;
     const priceBaseline = priceY + 10;
+    const isExpired = productInfo && productInfo.status === 'expired';
 
+    if (isExpired) {
+      const line1 = '【期限切れ】';
+      const line2 = '店員にお知らせください。';
+      const lineHeight = 18;
+      const centerY = TAG_HEIGHT / 2;
+      overlayCtx.fillStyle = '#dc2626';
+      overlayCtx.font = 'bold 14px sans-serif';
+      overlayCtx.textAlign = 'center';
+      overlayCtx.fillText(line1, priceCenterX, centerY - lineHeight / 2 + 4);
+      overlayCtx.fillText(line2, priceCenterX, centerY + lineHeight / 2 + 4);
+    } else {
     overlayCtx.font = 'bold 32px sans-serif';
     const priceStrForMeasure = currentPrice != null ? String(currentPrice) : '---';
     const priceW = overlayCtx.measureText(priceStrForMeasure).width;
@@ -392,6 +404,7 @@
       overlayCtx.font = '12px sans-serif';
       overlayCtx.fillStyle = '#374151';
       overlayCtx.fillText('円', startX + priceW + 6, priceY + 4);
+    }
     }
 
     // ----- 4. 割引シール（赤枠・黄地・SALE/XX円引き・長方形からはみ出て右上に配置） -----
