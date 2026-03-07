@@ -38,32 +38,35 @@ def init_db():
     conn = sqlite3.connect("gerbera.db")
     cursor = conn.cursor()
     
-    # itemsテーブルを作成（ID, 名前, 定価, 底値, 在庫, 期限）
+    # main.py の init_db() 内
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS items (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             original_price INTEGER NOT NULL,
             min_price INTEGER NOT NULL,
-            stock INTEGER NOT NULL,
-            expiry_time TEXT NOT NULL
+            expiry_time TEXT NOT NULL,
+            status TEXT DEFAULT 'on_sale'
         )
     """)
     
     # 開発用: もしテーブルが空なら、テスト用データをINSERTしておく
+    # 開発用: もしテーブルが空なら、テスト用データをINSERTしておく
     cursor.execute("SELECT COUNT(*) FROM items")
     if cursor.fetchone()[0] == 0:
         now = datetime.now(JST)
+        # サンプルデータから「在庫数」の数字を削除しました
         sample_data = [
-            ("BENTO_001", "特製幕の内弁当", 800, 400, 10, (now + timedelta(hours=2)).isoformat()),
-            ("BENTO_002", "鮭の塩焼き弁当", 600, 300, 2, (now + timedelta(hours=2)).isoformat()),
-            ("BENTO_003", "三元豚のロースかつ重", 700, 350, 5, (now + timedelta(hours=10)).isoformat()),
-            ("BENTO_004", "1/2日分の野菜サラダ", 300, 150, 15, (now + timedelta(minutes=15)).isoformat()),
-            ("BENTO_005", "手作りおにぎり（ツナマヨ）", 150, 50, 0, (now + timedelta(hours=5)).isoformat()),
-            ("BENTO_006", "具だくさん豚汁", 250, 100, 8, (now - timedelta(minutes=30)).isoformat())
+            ("BENTO_001", "特製幕の内弁当", 800, 400, (now + timedelta(hours=2)).isoformat()),
+            ("BENTO_002", "鮭の塩焼き弁当", 600, 300, (now + timedelta(hours=2)).isoformat()),
+            ("BENTO_003", "三元豚のロースかつ重", 700, 350, (now + timedelta(hours=10)).isoformat()),
+            ("BENTO_004", "1/2日分の野菜サラダ", 300, 150, (now + timedelta(minutes=15)).isoformat()),
+            ("BENTO_005", "手作りおにぎり（ツナマヨ）", 150, 50, (now + timedelta(hours=5)).isoformat()),
+            ("BENTO_006", "具だくさん豚汁", 250, 100, (now - timedelta(minutes=30)).isoformat())
         ]
+        # INSERT文から stock を消して、? の数も 6個 から 5個 に減らしました
         cursor.executemany(
-            "INSERT INTO items (id, name, original_price, min_price, stock, expiry_time) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO items (id, name, original_price, min_price, expiry_time) VALUES (?, ?, ?, ?, ?)",
             sample_data
         )
         conn.commit()
@@ -141,14 +144,22 @@ def get_item(item_id: str):
     # ② SQLを発行して該当するIDのデータを検索
     cursor.execute("SELECT * FROM items WHERE id = ?", (item_id,))
     row = cursor.fetchone()
-    conn.close()
+    
 
     if not row:
+        conn.close()
         return {"error": "Item not found"}
     
     # ③ データベースの行データをPythonの辞書に変換
     item_data = dict(row)
+    item_name = item_data["name"]
+
+    cursor.execute("SELECT COUNT(*) as current_stock FROM items WHERE name = ? AND status = 'on_sale'", (item_name,))
+    stock_count = cursor.fetchone()["current_stock"]
     
+    conn.close()
+
+    item_data["stock"] = stock_count
     # SQLiteには日時が文字列(TEXT)で保存されているので、計算用にdatetime型に戻す
     item_data["expiry_time"] = datetime.fromisoformat(item_data["expiry_time"])
     
@@ -164,25 +175,23 @@ def create_item(item: ItemCreate):
     
     generated_ids = []
 
-    # 在庫数（item.stock）の分だけループしてIDを発行・保存する
+    # 在庫数（item.stock）の分だけループして個別のIDを発行・保存する
     for i in range(item.stock):
-        # 個別のユニークIDを生成
         new_id = f"ITEM_{str(uuid.uuid4())[:8].upper()}"
         
+        # ここから stock を削除しました（? も 6個 から 5個 に）
         cursor.execute(
             """
-            INSERT INTO items (id, name, original_price, min_price, stock, expiry_time)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO items (id, name, original_price, min_price, expiry_time)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            # 個別のIDを保存。在庫管理をしやすくするため各レコードのstockは「1」として扱う
-            (new_id, item.name, item.original_price, item.min_price, 1, item.expiry_time)
+            (new_id, item.name, item.original_price, item.min_price, item.expiry_time)
         )
         generated_ids.append(new_id)
 
     conn.commit()
     conn.close()
 
-    # 発行された全てのIDリストをフロントに返す
     return {
         "message": f"{item.stock}個の商品を登録しました！",
         "ids": generated_ids,
@@ -191,3 +200,24 @@ def create_item(item: ItemCreate):
             "count": item.stock
         }
     }
+
+@app.post("/api/items/{item_id}/purchase")
+def purchase_item(item_id: str):
+    conn = sqlite3.connect("gerbera.db")
+    cursor = conn.cursor()
+
+    # status を 'purchased' に更新する
+    cursor.execute(
+        "UPDATE items SET status = 'purchased' WHERE id = ? AND status = 'on_sale'",
+        (item_id,)
+    )
+    
+    # 更新された行がなければ、すでに売れているか存在しない
+    if cursor.rowcount == 0:
+        conn.close()
+        return JSONResponse(status_code=400, content={"message": "すでに購入済みか、販売されていません"})
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "success", "status": "purchased"}
