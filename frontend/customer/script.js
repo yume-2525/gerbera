@@ -15,13 +15,22 @@
   const overlayCtx = overlayCanvas.getContext('2d');
   const loadingEl = document.getElementById('loading');
 
-  const DETECT_WIDTH = 320;
+  const DETECT_WIDTH = 640;
   const LERP_OLD = 0.7;
   const LERP_NEW = 0.3;
-  const AR_TIMEOUT_MS = 500;
+  const AR_TIMEOUT_MS = 2000;
   /** バックエンドAPI（ローカル: uvicorn 等で 8000 番で起動） */
   const API_BASE = 'http://localhost:8000/api/items';
   const EXPIRY_UPDATE_INTERVAL_MS = 1000;
+
+  /** 1x1透明PNG（プレースホルダー）。実画像は frontend/assets/ に置いてパスを差し替え可 */
+  const PLACEHOLDER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const ASSET_URLS = {
+    hotAura: PLACEHOLDER_PNG,
+    cryingFace: PLACEHOLDER_PNG
+  };
+  /** プリロード済み画像。drawSingleARTag で参照。毎フレーム new Image() 禁止。 */
+  const arAssets = { hotAura: null, cryingFace: null };
 
   // --- Coordinate Logic ---
   let viewW = 0, viewH = 0;
@@ -135,43 +144,92 @@
     cameraCtx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, viewW, viewH);
   }
 
-  // --- AR Drawing ---
-  const TAG_OFFSET_Y = -64;
-  const TAG_WIDTH = 180;
-  const TAG_HEIGHT = 78;
+  // --- AR Drawing（スーパー値札・割引シール風・円形シール） ---
+  /** QRを覆う白い値札。中心に重なる（大きめサイズ） */
+  const TAG_OFFSET_Y = 0;
+  const TAG_WIDTH = 200;
+  const TAG_HEIGHT = 108;
 
-  function applyStatusStyle(ctx, status, isUrgentBlink) {
-    const grad = ctx.createLinearGradient(0, 0, TAG_WIDTH, 0);
-    if (status === 'discounted') {
-      grad.addColorStop(0, '#dc2626');
-      grad.addColorStop(0.5, '#ea580c');
-      grad.addColorStop(1, '#ca8a04');
-      ctx.fillStyle = grad;
-      ctx.strokeStyle = '#fbbf24';
-    } else if (status === 'urgent') {
-      grad.addColorStop(0, '#b91c1c');
-      grad.addColorStop(0.5, '#dc2626');
-      grad.addColorStop(1, '#ea580c');
-      ctx.fillStyle = grad;
-      ctx.strokeStyle = isUrgentBlink ? '#fef08a' : '#fbbf24';
-      ctx.shadowColor = '#fef08a';
-      ctx.shadowBlur = 8;
-    } else {
-      grad.addColorStop(0, '#0ea5e9');
-      grad.addColorStop(1, '#22c55e');
-      ctx.fillStyle = grad;
-      ctx.strokeStyle = '#67e8a3';
+  /**
+   * 円形を描画。中心(x,y)、半径radius、塗りfillColor、枠strokeColor、枠太さstrokeWidth。
+   */
+  function drawCircle(ctx, x, y, radius, fillColor, strokeColor, strokeWidth) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    if (fillColor) {
+      ctx.fillStyle = fillColor;
+      ctx.fill();
     }
-    ctx.lineWidth = 2;
+    if (strokeColor && strokeWidth > 0) {
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.stroke();
+    }
   }
 
-  function roundRect(ctx, x, y, w, h, r) {
+  /** 角丸長方形のパス（タグ本体・影用）。x,yは左上、w,h、半径r */
+  function roundRectPath(ctx, x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.lineTo(x + w - r, y);
     ctx.quadraticCurveTo(x + w, y, x + w, y + r);
     ctx.lineTo(x + w, y + h - r);
     ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  /** 賞味期限バーの基準時間（分）。12時間 = この値以上でバーMAX。 */
+  const EXPIRY_BAR_BASE_MINUTES = 12 * 60;
+
+  /**
+   * 賞味期限ゲージ（細長い棒バー）。val/max で塗り幅、timeRatio で色（1=緑→0=赤、黄・オレンジを挟む）。
+   */
+  function drawHealthBar(ctx, x, y, width, height, val, max, timeRatio) {
+    const radius = Math.max(1, Math.min(height / 2, 4));
+    let color = '#22c55e';
+    if (typeof timeRatio === 'number') {
+      if (timeRatio >= 2 / 3) color = '#22c55e';
+      else if (timeRatio >= 1 / 3) color = '#eab308';
+      else if (timeRatio >= 1 / 12) color = '#f97316';
+      else color = '#ef4444';
+    } else if (max > 0) {
+      const ratio = val / max;
+      if (ratio <= 1 / 5) color = '#ef4444';
+      else if (ratio <= 3 / 5) color = '#eab308';
+      else color = '#22c55e';
+    }
+    const fillRatio = max > 0 ? Math.min(1, val / max) : 0;
+    const fillW = Math.max(0, width * fillRatio);
+    ctx.fillStyle = '#e5e7eb';
+    roundRectPath(ctx, x, y, width, height, radius);
+    ctx.fill();
+    if (fillW > 0) {
+      ctx.fillStyle = color;
+      roundRectPath(ctx, x, y, fillW, height, radius);
+      ctx.fill();
+    }
+    ctx.strokeStyle = '#d1d5db';
+    ctx.lineWidth = 1;
+    roundRectPath(ctx, x, y, width, height, radius);
+    ctx.stroke();
+  }
+
+  /** 吹き出し（角丸四角＋三角形のしっぽ）。左上(x,y)、幅w、高さh */
+  function drawSpeechBubble(ctx, x, y, w, h, tailSize) {
+    const r = 5;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + w / 2 + 6, y + h);
+    ctx.lineTo(x + w / 2, y + h + tailSize);
+    ctx.lineTo(x + w / 2 - 6, y + h);
     ctx.lineTo(x + r, y + h);
     ctx.quadraticCurveTo(x, y + h, x, y + h - r);
     ctx.lineTo(x, y + r);
@@ -188,7 +246,7 @@
     if (smoothedCorners) {
       const { tl, tr, br, bl } = smoothedCorners;
       overlayCtx.strokeStyle = '#e11d48';
-      overlayCtx.lineWidth = 4;
+      overlayCtx.lineWidth = 2;
       overlayCtx.beginPath();
       overlayCtx.moveTo(tl.x, tl.y);
       overlayCtx.lineTo(tr.x, tr.y);
@@ -203,91 +261,231 @@
     overlayCtx.rotate(angle);
     overlayCtx.translate(-TAG_WIDTH / 2, -TAG_HEIGHT / 2);
 
-    const status = (productInfo && productInfo.status) ? productInfo.status : 'normal';
     const isUrgentTime = remainingMinutes !== null && remainingMinutes < 60;
-    const blinkOn = isUrgentTime && (performance.now() % 500 < 250);
-    applyStatusStyle(overlayCtx, status, blinkOn);
+    const lowStock = productInfo && productInfo.stock !== undefined && productInfo.stock <= 3;
+    const discountRate = (productInfo && productInfo.discount_rate != null) ? Math.round(productInfo.discount_rate) : 0;
+    const hasDiscount = discountRate > 0;
+    const originalPrice = productInfo && productInfo.original_price != null ? productInfo.original_price : null;
+    const currentPrice = (productInfo && (productInfo.current_price != null || productInfo.original_price != null))
+      ? (productInfo.current_price != null ? productInfo.current_price : productInfo.original_price)
+      : null;
 
-    roundRect(overlayCtx, 0, 0, TAG_WIDTH, TAG_HEIGHT, 8);
+    const tagR = 12;
+    const shadowOffset = 4;
+    const tagCx = TAG_WIDTH / 2;
+    const tagCy = TAG_HEIGHT / 2;
+
+    // ----- 0. オーラ（値札タグの背面）。画像用意後にコメント解除し、ASSET_URLS で hotAura を読み込む -----
+    /*
+    overlayCtx.save();
+    overlayCtx.globalAlpha = 0.5;
+    if (arAssets.hotAura && arAssets.hotAura.complete && arAssets.hotAura.naturalWidth > 1) {
+      const auraSize = Math.max(TAG_WIDTH, TAG_HEIGHT) * 1.4;
+      overlayCtx.drawImage(arAssets.hotAura, tagCx - auraSize / 2, tagCy - auraSize / 2, auraSize, auraSize);
+    } else {
+      const r = Math.max(TAG_WIDTH, TAG_HEIGHT) * 0.7;
+      const g = overlayCtx.createRadialGradient(tagCx, tagCy, 0, tagCx, tagCy, r);
+      g.addColorStop(0, 'rgba(251,146,60,0.5)');
+      g.addColorStop(0.5, 'rgba(249,115,22,0.2)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      overlayCtx.fillStyle = g;
+      overlayCtx.fillRect(tagCx - r, tagCy - r, r * 2, r * 2);
+    }
+    overlayCtx.restore();
+    */
+
+    // ----- 0b. 割引50%以上：集中線をタグ背面に（文字と被らないよう土台の手前に描画） -----
+    if (discountRate >= 50) {
+      const cx = TAG_WIDTH / 2;
+      const cy = TAG_HEIGHT / 2;
+      const rayCount = 24;
+      overlayCtx.save();
+      overlayCtx.globalAlpha = 0.12;
+      overlayCtx.strokeStyle = '#dc2626';
+      overlayCtx.lineWidth = 1;
+      for (let i = 0; i < rayCount; i++) {
+        const a = (i / rayCount) * Math.PI * 2;
+        const len = Math.max(TAG_WIDTH, TAG_HEIGHT) * 0.7;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(cx, cy);
+        overlayCtx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+        overlayCtx.stroke();
+      }
+      overlayCtx.restore();
+    }
+
+    // ----- 1. 立体感：ドロップシャドウ（タグの右下にずらした半透明の黒） -----
+    roundRectPath(overlayCtx, shadowOffset, shadowOffset, TAG_WIDTH, TAG_HEIGHT, tagR);
+    overlayCtx.fillStyle = 'rgba(0,0,0,0.25)';
     overlayCtx.fill();
-    if (!isUrgentTime || blinkOn) {
-      overlayCtx.stroke();
-    }
-    overlayCtx.shadowBlur = 0;
 
-    let y = 16;
-    const lineHeight = 14;
-    overlayCtx.fillStyle = '#fff';
-    overlayCtx.textAlign = 'center';
+    // ----- 2. 土台：タグ本体（角丸・グラデで立体感・上左にハイライト） -----
+    roundRectPath(overlayCtx, 0, 0, TAG_WIDTH, TAG_HEIGHT, tagR);
+    const tagGrad = overlayCtx.createLinearGradient(0, 0, TAG_WIDTH, TAG_HEIGHT);
+    tagGrad.addColorStop(0, '#ffffff');
+    tagGrad.addColorStop(0.4, '#fafafa');
+    tagGrad.addColorStop(1, '#f0f0f0');
+    overlayCtx.fillStyle = tagGrad;
+    overlayCtx.fill();
+    overlayCtx.strokeStyle = '#e5e7eb';
+    overlayCtx.lineWidth = 1;
+    overlayCtx.stroke();
+    overlayCtx.strokeStyle = 'rgba(255,255,255,0.8)';
+    overlayCtx.lineWidth = 1.2;
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(tagR, 0);
+    overlayCtx.lineTo(TAG_WIDTH - tagR, 0);
+    overlayCtx.moveTo(0, tagR);
+    overlayCtx.lineTo(0, TAG_HEIGHT - tagR);
+    overlayCtx.stroke();
 
-    if (!productInfo || !productInfo.name) {
-      overlayCtx.font = 'bold 13px sans-serif';
-      overlayCtx.fillText('読み込み中...', TAG_WIDTH / 2, y);
-      y += lineHeight + 4;
-      overlayCtx.font = 'bold 16px sans-serif';
-      overlayCtx.fillText('---', TAG_WIDTH / 2, y + 10);
-      overlayCtx.restore();
-      return;
-    }
+    // ----- 3. 上部：商品名（黒・ゴシック）。価格・シールと重ならないよう左寄せ -----
+    overlayCtx.fillStyle = '#000000';
+    overlayCtx.font = 'bold 14px sans-serif';
+    overlayCtx.textAlign = 'left';
+    const nameText = (!productInfo || !productInfo.name)
+      ? '読み込み中...'
+      : (productInfo.name === '取得失敗' ? '取得失敗' : (productInfo.name.length > 14 ? productInfo.name.slice(0, 13) + '…' : productInfo.name));
+    overlayCtx.fillText(nameText, 12, 24);
 
-    if (productInfo.name === '取得失敗') {
-      overlayCtx.font = 'bold 13px sans-serif';
-      overlayCtx.fillText('取得失敗', TAG_WIDTH / 2, y);
-      overlayCtx.restore();
-      return;
-    }
+    // ----- 3. 中央：価格表示（中央揃え。値引き時は元値を値引き後価格の左隣に描画） -----
+    const priceY = 72;
+    const priceCenterX = TAG_WIDTH / 2;
+    const priceBaseline = priceY + 10;
 
-    overlayCtx.font = 'bold 12px sans-serif';
-    const nameText = productInfo.name.length > 14 ? productInfo.name.slice(0, 13) + '…' : productInfo.name;
-    overlayCtx.fillText(nameText, TAG_WIDTH / 2, y);
-    y += lineHeight;
+    overlayCtx.font = 'bold 32px sans-serif';
+    const priceStrForMeasure = currentPrice != null ? String(currentPrice) : '---';
+    const priceW = overlayCtx.measureText(priceStrForMeasure).width;
+    overlayCtx.font = '12px sans-serif';
+    const yenW = overlayCtx.measureText('円').width;
+    const gap = 8;
 
-    if (isUrgentTime) {
-      overlayCtx.fillStyle = '#fef08a';
-      overlayCtx.font = 'bold 11px sans-serif';
-      overlayCtx.fillText('期限間近！', TAG_WIDTH / 2, y);
-      overlayCtx.fillStyle = '#fff';
-      y += lineHeight;
-    }
-
-    const hasDiscount = productInfo.discount_rate > 0 && productInfo.original_price != null;
-    if (hasDiscount) {
-      const origText = '¥' + productInfo.original_price;
-      overlayCtx.font = '11px sans-serif';
-      const origW = overlayCtx.measureText(origText).width;
-      const origCenterX = TAG_WIDTH / 2 - 24;
-      overlayCtx.fillStyle = 'rgba(255,255,255,0.9)';
-      overlayCtx.fillText(origText, origCenterX, y);
-      overlayCtx.strokeStyle = '#fff';
+    if (hasDiscount && originalPrice != null && currentPrice != null) {
+      const origStr = String(originalPrice);
+      overlayCtx.font = '16px sans-serif';
+      const origW = overlayCtx.measureText(origStr).width;
+      const totalPriceW = origW + gap + priceW + 6 + yenW;
+      const startX = priceCenterX - totalPriceW / 2;
+      overlayCtx.fillStyle = '#6b7280';
+      overlayCtx.textAlign = 'left';
+      overlayCtx.fillText(origStr, startX, priceBaseline);
+      overlayCtx.strokeStyle = '#ef4444';
       overlayCtx.lineWidth = 1;
       overlayCtx.beginPath();
-      overlayCtx.moveTo(origCenterX - origW / 2, y);
-      overlayCtx.lineTo(origCenterX + origW / 2, y);
+      overlayCtx.moveTo(startX, priceBaseline);
+      overlayCtx.lineTo(startX + origW, priceBaseline);
       overlayCtx.stroke();
-      overlayCtx.lineWidth = 2;
-      const badgeText = Math.round(productInfo.discount_rate) + '% OFF';
-      overlayCtx.font = 'bold 10px sans-serif';
-      const badgeW = Math.max(overlayCtx.measureText(badgeText).width + 10, 44);
-      const badgeH = 16;
-      const badgeLeft = origCenterX + origW / 2 + 4;
-      overlayCtx.fillStyle = '#b91c1c';
-      roundRect(overlayCtx, badgeLeft, y - 12, badgeW, badgeH, 4);
-      overlayCtx.fill();
-      overlayCtx.fillStyle = '#fff';
-      overlayCtx.fillText(badgeText, badgeLeft + badgeW / 2, y - 2);
-      y += lineHeight;
+      overlayCtx.fillStyle = '#000000';
+      overlayCtx.font = 'bold 32px sans-serif';
+      overlayCtx.fillText(String(currentPrice), startX + origW + gap, priceBaseline);
+      overlayCtx.font = '12px sans-serif';
+      overlayCtx.fillStyle = '#374151';
+      overlayCtx.fillText('円', startX + origW + gap + priceW + 6, priceY + 4);
+    } else {
+      const totalPriceW = priceW + 6 + yenW;
+      const startX = priceCenterX - totalPriceW / 2;
+      overlayCtx.fillStyle = '#000000';
+      overlayCtx.font = 'bold 32px sans-serif';
+      overlayCtx.textAlign = 'left';
+      overlayCtx.fillText(priceStrForMeasure, startX, priceBaseline);
+      overlayCtx.font = '12px sans-serif';
+      overlayCtx.fillStyle = '#374151';
+      overlayCtx.fillText('円', startX + priceW + 6, priceY + 4);
     }
 
-    const currentPrice = productInfo.current_price != null ? productInfo.current_price : productInfo.original_price;
-    overlayCtx.fillStyle = '#fff';
-    overlayCtx.font = 'bold 20px sans-serif';
-    const priceText = currentPrice != null ? '¥' + currentPrice : '---';
-    overlayCtx.fillText(priceText, TAG_WIDTH / 2, y + 6);
-    y += 22;
+    // ----- 4. 割引シール（赤枠・黄地・SALE/XX円引き・長方形からはみ出て右上に配置） -----
+    if (hasDiscount) {
+      const sealCx = TAG_WIDTH - 8;
+      const sealCy = 22;
+      const sealR = 34;
+      const sealTilt = (entry.id ? (entry.id.charCodeAt(0) % 7 - 3) : 2) * (Math.PI / 180);
+      overlayCtx.save();
+      overlayCtx.translate(sealCx, sealCy);
+      overlayCtx.rotate(sealTilt);
+      overlayCtx.translate(-sealCx, -sealCy);
+      overlayCtx.shadowColor = 'rgba(0,0,0,0.35)';
+      overlayCtx.shadowBlur = 6;
+      overlayCtx.shadowOffsetX = 2;
+      overlayCtx.shadowOffsetY = 2;
+      drawCircle(overlayCtx, sealCx, sealCy, sealR, '#dc2626', '#b91c1c', 2);
+      overlayCtx.restore();
+      overlayCtx.save();
+      overlayCtx.translate(sealCx, sealCy);
+      overlayCtx.rotate(sealTilt);
+      overlayCtx.translate(-sealCx, -sealCy);
+      const innerR = sealR - 4;
+      const sealInnerGrad = overlayCtx.createLinearGradient(sealCx - innerR, sealCy - innerR, sealCx + innerR, sealCy + innerR);
+      sealInnerGrad.addColorStop(0, '#fef9c3');
+      sealInnerGrad.addColorStop(1, '#fef08a');
+      overlayCtx.beginPath();
+      overlayCtx.arc(sealCx, sealCy, innerR, 0, Math.PI * 2);
+      overlayCtx.fillStyle = sealInnerGrad;
+      overlayCtx.fill();
+      overlayCtx.strokeStyle = '#dc2626';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.stroke();
+      const discountYen = (originalPrice != null && currentPrice != null) ? (originalPrice - currentPrice) : 0;
+      const discountLabel = discountYen > 0 ? discountYen + '円引き' : (discountRate >= 1 ? discountRate + '%値引き' : 'SALE');
+      overlayCtx.fillStyle = '#dc2626';
+      overlayCtx.font = 'bold 13px sans-serif';
+      let labelW = overlayCtx.measureText(discountLabel).width;
+      if (labelW > innerR * 1.7) {
+        overlayCtx.font = 'bold 11px sans-serif';
+      }
+      overlayCtx.textAlign = 'center';
+      overlayCtx.fillText(discountLabel, sealCx, sealCy + 5);
+      overlayCtx.restore();
+    }
 
-    if (productInfo.stock !== undefined && productInfo.stock <= 3) {
-      overlayCtx.font = '11px sans-serif';
-      overlayCtx.fillText('残りわずか（残り' + productInfo.stock + '個）', TAG_WIDTH / 2, y);
+    // ----- 5. 賞味期限バー（12時間基準・線形減少・緑→黄→オレンジ→赤） -----
+    if (productInfo) {
+      const barY = TAG_HEIGHT - 16;
+      const barW = 60;
+      const barH = 10;
+      overlayCtx.fillStyle = '#000000';
+      overlayCtx.font = 'bold 10px sans-serif';
+      overlayCtx.textAlign = 'left';
+      overlayCtx.fillText('賞味期限', 12, barY + 8);
+      const labelW = overlayCtx.measureText('賞味期限').width;
+      const baseMin = EXPIRY_BAR_BASE_MINUTES;
+      const minutes = remainingMinutes !== null ? remainingMinutes : 0;
+      const timeRatio = Math.min(minutes / baseMin, 1);
+      const barVal = timeRatio * 5;
+      drawHealthBar(overlayCtx, 12 + labelW + 6, barY, barW, barH, barVal, 5, timeRatio);
+    }
+
+    // ----- 6. 在庫わずか：吹き出し「残りN点！」 -----
+    if (lowStock && productInfo) {
+      const bubbleX = TAG_WIDTH / 2 - 40;
+      const bubbleY = -28;
+      const bubbleW = 80;
+      const bubbleH = 24;
+      overlayCtx.fillStyle = '#ffffff';
+      overlayCtx.strokeStyle = '#94a3b8';
+      overlayCtx.lineWidth = 1;
+      drawSpeechBubble(overlayCtx, bubbleX, bubbleY, bubbleW, bubbleH, 6);
+      overlayCtx.fill();
+      overlayCtx.stroke();
+      overlayCtx.fillStyle = '#dc2626';
+      overlayCtx.font = 'bold 12px sans-serif';
+      overlayCtx.textAlign = 'center';
+      overlayCtx.fillText('残り' + productInfo.stock + '点！', bubbleX + bubbleW / 2, bubbleY + bubbleH / 2 + 5);
+    }
+
+    // ----- 7. 期限間近：感情アイコンを枠外の右斜め上にピョコピョコで表示 -----
+    if (isUrgentTime) {
+      const bounce = Math.sin(performance.now() / 200) * 5;
+      const faceX = TAG_WIDTH + 10;
+      const faceY = -16 + bounce;
+      if (arAssets.cryingFace && arAssets.cryingFace.complete && arAssets.cryingFace.naturalWidth > 1) {
+        const faceSize = 28;
+        overlayCtx.drawImage(arAssets.cryingFace, faceX - faceSize / 2, faceY - faceSize / 2, faceSize, faceSize);
+      } else {
+        overlayCtx.font = '22px sans-serif';
+        overlayCtx.textAlign = 'center';
+        overlayCtx.fillStyle = '#1f2937';
+        overlayCtx.fillText('😢', faceX, faceY + 8);
+      }
     }
 
     overlayCtx.restore();
@@ -383,9 +581,22 @@
     requestAnimationFrame(tick);
   }
 
+  // --- ARアセットプリロード ---
+  function loadArAssets() {
+    return Promise.all(Object.keys(ASSET_URLS).map(function(key) {
+      return new Promise(function(resolve) {
+        const img = new Image();
+        img.onload = function() { arAssets[key] = img; resolve(); };
+        img.onerror = resolve;
+        img.src = ASSET_URLS[key];
+      });
+    }));
+  }
+
   // --- Camera & Init ---
   async function startCamera() {
     try {
+      await loadArAssets();
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
