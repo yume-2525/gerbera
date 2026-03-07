@@ -1,8 +1,21 @@
+import sqlite3
+import uuid
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 import math
+
+# from recipe_api import router as recipe_router
+
+# フロントエンドからPOSTで送られてくるデータの形式
+class ItemCreate(BaseModel):
+    name: str
+    original_price: int
+    min_price: int
+    stock: int
+    expiry_time: str  # 例: "2026-03-08T15:00:00+09:00" のような文字列
 
 app = FastAPI(title="Dynamic Pricing API")
 
@@ -18,66 +31,113 @@ app.add_middleware(
 # --- 擬似データベース（マスターデータ） ---
 # 実際はMySQLやSQLite等に入れますが、今回は辞書でモックアップを作ります
 JST = timezone(timedelta(hours=+9), 'JST')
-now = datetime.now(JST)
 
-# --- 擬似データベースの修正（stockを追加） ---
-mock_db = {
-    # パターン1: 割引中（在庫多め → 早く安くなる）
-    "BENTO_001": {
-        "id": "BENTO_001",
-        "name": "特製幕の内弁当",
-        "original_price": 800,
-        "min_price": 400,
-        "stock": 10, 
-        "expiry_time": now + timedelta(hours=2) 
-    },
-    # パターン2: 割引中（在庫残りわずか → 高値キープ）
-    "BENTO_002": {
-        "id": "BENTO_002",
-        "name": "鮭の塩焼き弁当",
-        "original_price": 600,
-        "min_price": 300,
-        "stock": 2, 
-        "expiry_time": now + timedelta(hours=2) 
-    },
-    # パターン3: 定価（時間がたっぷりある）
-    "BENTO_003": {
-        "id": "BENTO_003",
-        "name": "三元豚のロースかつ重",
-        "original_price": 700,
-        "min_price": 350,
-        "stock": 5,
-        "expiry_time": now + timedelta(hours=10)
-    },
-    # パターン4: 激安（期限ギリギリ ＆ 在庫過多）
-    "BENTO_004": {
-        "id": "BENTO_004",
-        "name": "1/2日分の野菜サラダ",
-        "original_price": 300,
-        "min_price": 150,
-        "stock": 15,
-        "expiry_time": now + timedelta(minutes=15)
-    },
-    # パターン5: 売り切れ（stockが0）
-    "BENTO_005": {
-        "id": "BENTO_005",
-        "name": "手作りおにぎり（ツナマヨ）",
-        "original_price": 150,
-        "min_price": 50,
-        "stock": 0,
-        "expiry_time": now + timedelta(hours=5)
-    },
-    # パターン6: 期限切れ（過去の時間）
-    "BENTO_006": {
-        "id": "BENTO_006",
-        "name": "具だくさん豚汁",
-        "original_price": 250,
-        "min_price": 100,
-        "stock": 8,
-        # timedeltaをマイナスにして「30分前に期限切れ」を再現
-        "expiry_time": now - timedelta(minutes=30) 
-    }
-}
+
+# now = datetime.now(JST)
+
+# # --- 擬似データベースの修正（stockを追加） ---
+# mock_db = {
+#     # パターン1: 割引中（在庫多め → 早く安くなる）
+#     "BENTO_001": {
+#         "id": "BENTO_001",
+#         "name": "特製幕の内弁当",
+#         "original_price": 800,
+#         "min_price": 400,
+#         "stock": 10, 
+#         "expiry_time": now + timedelta(hours=2) 
+#     },
+#     # パターン2: 割引中（在庫残りわずか → 高値キープ）
+#     "BENTO_002": {
+#         "id": "BENTO_002",
+#         "name": "鮭の塩焼き弁当",
+#         "original_price": 600,
+#         "min_price": 300,
+#         "stock": 2, 
+#         "expiry_time": now + timedelta(hours=2) 
+#     },
+#     # パターン3: 定価（時間がたっぷりある）
+#     "BENTO_003": {
+#         "id": "BENTO_003",
+#         "name": "三元豚のロースかつ重",
+#         "original_price": 700,
+#         "min_price": 350,
+#         "stock": 5,
+#         "expiry_time": now + timedelta(hours=10)
+#     },
+#     # パターン4: 激安（期限ギリギリ ＆ 在庫過多）
+#     "BENTO_004": {
+#         "id": "BENTO_004",
+#         "name": "1/2日分の野菜サラダ",
+#         "original_price": 300,
+#         "min_price": 150,
+#         "stock": 15,
+#         "expiry_time": now + timedelta(minutes=15)
+#     },
+#     # パターン5: 売り切れ（stockが0）
+#     "BENTO_005": {
+#         "id": "BENTO_005",
+#         "name": "手作りおにぎり（ツナマヨ）",
+#         "original_price": 150,
+#         "min_price": 50,
+#         "stock": 0,
+#         "expiry_time": now + timedelta(hours=5)
+#     },
+#     # パターン6: 期限切れ（過去の時間）
+#     "BENTO_006": {
+#         "id": "BENTO_006",
+#         "name": "具だくさん豚汁",
+#         "original_price": 250,
+#         "min_price": 100,
+#         "stock": 8,
+#         # timedeltaをマイナスにして「30分前に期限切れ」を再現
+#         "expiry_time": now - timedelta(minutes=30) 
+#     }
+# }
+
+# ==========================================
+# 1. データベースの初期設定とサンプルデータ投入
+# ==========================================
+def init_db():
+    conn = sqlite3.connect("gerbera.db")
+    cursor = conn.cursor()
+    
+    # itemsテーブルを作成（ID, 名前, 定価, 底値, 在庫, 期限）
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            original_price INTEGER NOT NULL,
+            min_price INTEGER NOT NULL,
+            stock INTEGER NOT NULL,
+            expiry_time TEXT NOT NULL
+        )
+    """)
+    
+    # 開発用: もしテーブルが空なら、テスト用データをINSERTしておく
+    cursor.execute("SELECT COUNT(*) FROM items")
+    if cursor.fetchone()[0] == 0:
+        now = datetime.now(JST)
+        sample_data = [
+            ("BENTO_001", "特製幕の内弁当", 800, 400, 10, (now + timedelta(hours=2)).isoformat()),
+            ("BENTO_002", "鮭の塩焼き弁当", 600, 300, 2, (now + timedelta(hours=2)).isoformat()),
+            ("BENTO_003", "三元豚のロースかつ重", 700, 350, 5, (now + timedelta(hours=10)).isoformat()),
+            ("BENTO_004", "1/2日分の野菜サラダ", 300, 150, 15, (now + timedelta(minutes=15)).isoformat()),
+            ("BENTO_005", "手作りおにぎり（ツナマヨ）", 150, 50, 0, (now + timedelta(hours=5)).isoformat()),
+            ("BENTO_006", "具だくさん豚汁", 250, 100, 8, (now - timedelta(minutes=30)).isoformat())
+        ]
+        cursor.executemany(
+            "INSERT INTO items (id, name, original_price, min_price, stock, expiry_time) VALUES (?, ?, ?, ?, ?, ?)",
+            sample_data
+        )
+        conn.commit()
+    conn.close()
+
+# サーバー起動時にデータベースを準備
+init_db()
+
+
+
+# app.include_router(recipe_router)
 
 # --- 価格計算アルゴリズムの修正（在庫数の組み込み） ---
 def calculate_dynamic_price(item_data: dict, current_time: datetime) -> dict:
@@ -130,14 +190,76 @@ def calculate_dynamic_price(item_data: dict, current_time: datetime) -> dict:
         "status": status,
         "expiry_time": expiry_time.isoformat()
     }
-# --- APIエンドポイント ---
+# # --- APIエンドポイント ---
+# @app.get("/api/items/{item_id}")
+# def get_item(item_id: str):
+#     if item_id not in mock_db:
+#         return {"error": "Item not found"}
+    
+#     item_data = mock_db[item_id]
+#     current_time = datetime.now(JST)
+    
+#     # 計算結果をJSON形式で返す
+#     return calculate_dynamic_price(item_data, current_time)
+
+
+# ==========================================
+# 3. APIエンドポイント（SQLiteから取得するように変更）
+# ==========================================
 @app.get("/api/items/{item_id}")
 def get_item(item_id: str):
-    if item_id not in mock_db:
+    # ① データベースに接続
+    conn = sqlite3.connect("gerbera.db")
+    conn.row_factory = sqlite3.Row # カラム名（nameやstockなど）でデータを取り出せるようにする設定
+    cursor = conn.cursor()
+    
+    # ② SQLを発行して該当するIDのデータを検索
+    cursor.execute("SELECT * FROM items WHERE id = ?", (item_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
         return {"error": "Item not found"}
     
-    item_data = mock_db[item_id]
+    # ③ データベースの行データをPythonの辞書に変換
+    item_data = dict(row)
+    
+    # SQLiteには日時が文字列(TEXT)で保存されているので、計算用にdatetime型に戻す
+    item_data["expiry_time"] = datetime.fromisoformat(item_data["expiry_time"])
+    
     current_time = datetime.now(JST)
     
-    # 計算結果をJSON形式で返す
+    # ④ 計算関数に渡して返す
     return calculate_dynamic_price(item_data, current_time)
+
+@app.post("/api/items")
+def create_item(item: ItemCreate):
+    # ① QRコード用の新しいIDを生成（例: ITEM_A1B2C3D4）
+    new_id = f"ITEM_{str(uuid.uuid4())[:8].upper()}"
+
+    # ② データベースに接続してINSERT（登録）
+    conn = sqlite3.connect("gerbera.db")
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        """
+        INSERT INTO items (id, name, original_price, min_price, stock, expiry_time)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (new_id, item.name, item.original_price, item.min_price, item.stock, item.expiry_time)
+    )
+    conn.commit()
+    conn.close()
+
+    # ③ 登録成功のメッセージと、発行したIDをフロントエンドに返す
+    return {
+        "message": "商品を新しく登録しました！",
+        "new_item_id": new_id,
+        "registered_data": {
+            "name": item.name,
+            "original_price": item.original_price,
+            "min_price": item.min_price,
+            "stock": item.stock,
+            "expiry_time": item.expiry_time
+        }
+    }
