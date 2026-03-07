@@ -262,3 +262,22 @@ def purchase_item(item_id: str):
     conn.close()
 
     return {"message": "success", "status": "purchased"}
+
+
+@app.get("/api/item-templates")
+def get_item_templates():
+    conn = sqlite3.connect("gerbera.db")
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # GROUP BY を使って、同じ名前の商品の最新の定価・底値を取得する
+    cursor.execute("""
+        SELECT name, original_price, min_price 
+        FROM items 
+        GROUP BY name
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # 辞書のリストとして返す
+    return [dict(row) for row in rows]

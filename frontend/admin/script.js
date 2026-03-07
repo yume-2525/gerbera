@@ -89,50 +89,91 @@ async function registerItem(event) {
     }
 }
 
-// async function downloadPDF() {
-//     const { jsPDF } = window.jspdf;
-//     const doc = new jsPDF();
+
+
+async function downloadPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
     
-//     // 画面上のすべてのQRコード（Canvas）を取得
-//     const qrCanvases = document.querySelectorAll('#qrcodeContainer canvas');
-//     const itemName = document.getElementById('name').value;
+    // 画面上のすべてのQRコード（Canvas）を取得
+    const qrCanvases = document.querySelectorAll('#qrcodeContainer canvas');
+    const itemName = document.getElementById('name').value;
 
-//     if (qrCanvases.length === 0) {
-//         alert("保存するQRコードがありません。");
-//         return;
-//     }
+    if (qrCanvases.length === 0) {
+        alert("保存するQRコードがありません。");
+        return;
+    }
 
-//     doc.setFont("helvetica", "bold");
-//     doc.text(`Label List: ${itemName}`, 10, 10);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Label List: ${itemName}`, 10, 10);
 
-//     let x = 10;
-//     let y = 20;
-//     const qrSize = 40; // PDF上でのQRコードのサイズ(mm)
+    let x = 10;
+    let y = 20;
+    const qrSize = 40; // PDF上でのQRコードのサイズ(mm)
 
-//     qrCanvases.forEach((canvas, index) => {
-//         // Canvasを画像データ(PNG)に変換
-//         const imgData = canvas.toDataURL('image/png');
+    qrCanvases.forEach((canvas, index) => {
+        // Canvasを画像データ(PNG)に変換
+        const imgData = canvas.toDataURL('image/png');
 
-//         // PDFに画像を追加 (x, y, width, height)
-//         doc.addImage(imgData, 'PNG', x, y, qrSize, qrSize);
-//         doc.setFontSize(8);
-//         doc.text(`ID: ${canvas.parentElement.previousSibling.innerText}`, x, y + qrSize + 5);
+        // PDFに画像を追加 (x, y, width, height)
+        doc.addImage(imgData, 'PNG', x, y, qrSize, qrSize);
+        doc.setFontSize(8);
+        doc.text(`ID: ${canvas.parentElement.previousSibling.innerText}`, x, y + qrSize + 5);
 
-//         // レイアウト計算（横に3つ並んだら改行）
-//         x += qrSize + 20;
-//         if (x > 160) {
-//             x = 10;
-//             y += qrSize + 20;
-//         }
+        // レイアウト計算（横に3つ並んだら改行）
+        x += qrSize + 20;
+        if (x > 160) {
+            x = 10;
+            y += qrSize + 20;
+        }
 
-//         // ページがいっぱいになったら新しいページを追加
-//         if (y > 250 && index < qrCanvases.length - 1) {
-//             doc.addPage();
-//             y = 20;
-//             x = 10;
-//         }
-//     });
+        // ページがいっぱいになったら新しいページを追加
+        if (y > 250 && index < qrCanvases.length - 1) {
+            doc.addPage();
+            y = 20;
+            x = 10;
+        }
+    });
 
-//     // ファイル名を「商品名_labels.pdf」にして保存
-//     doc.save(`${itemName}_labels.pdf`);
-// }
+    // ファイル名を「商品名_labels.pdf」にして保存
+    doc.save(`${itemName}_labels.pdf`);
+}
+
+// ページが読み込まれたら実行
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        // ① さっきバックエンドで作ったAPIからデータを取得
+        // ※URLの http://127.0.0.1:8000 はバックエンドの環境に合わせて調整してください
+        const response = await fetch('http://127.0.0.1:8000/api/item-templates');
+        const templates = await response.json();
+        
+        const dataList = document.getElementById('item-name-list');
+        const nameInput = document.getElementById('name');
+        const originalPriceInput = document.getElementById('original_price');
+        const minPriceInput = document.getElementById('min_price');
+
+        // ② 取得した商品データを使って、プルダウンの選択肢を作る
+        templates.forEach(template => {
+            const option = document.createElement('option');
+            option.value = template.name;
+            dataList.appendChild(option);
+        });
+
+        // ③ 入力欄が変わったときのイベントを設定
+        nameInput.addEventListener('input', (event) => {
+            const selectedName = event.target.value;
+            
+            // 入力された名前と一致するデータが過去にあるか探す
+            const matchedTemplate = templates.find(t => t.name === selectedName);
+            
+            // 見つかったら、定価と底値を自動で書き換える
+            if (matchedTemplate) {
+                originalPriceInput.value = matchedTemplate.original_price;
+                minPriceInput.value = matchedTemplate.min_price;
+            }
+        });
+
+    } catch (error) {
+        console.error('商品テンプレートの取得に失敗しました:', error);
+    }
+});
