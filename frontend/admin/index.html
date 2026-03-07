@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>店舗管理 - 商品登録</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-md mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold mb-6">新規商品登録</h1>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium">商品名</label>
+                <input type="text" id="name" class="w-full border p-2 rounded" value="幕の内弁当">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium">定価 (円)</label>
+                    <input type="number" id="original_price" class="w-full border p-2 rounded" value="800">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">底値 (円)</label>
+                    <input type="number" id="min_price" class="w-full border p-2 rounded" value="400">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium">在庫数</label>
+                <input type="number" id="stock" class="w-full border p-2 rounded" value="10">
+            </div>
+            <div>
+                <label class="block text-sm font-medium">消費期限</label>
+                <input type="datetime-local" id="expiry_time" class="w-full border p-2 rounded">
+            </div>
+            
+            <button type="button" onclick="registerItem(event)" class="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700">
+                登録してQRコードを発行
+            </button>
+        </div>
+
+        <div id="resultArea" class="mt-8 hidden border-t pt-6 text-center">
+            <p class="text-green-600 font-bold mb-4">登録完了！</p>
+    
+            <button type="button" onclick="downloadPDF()" class="mb-6 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 font-bold">
+                ラベルをPDFで保存する
+            </button>
+
+            <div id="qrcodeContainer" class="flex flex-wrap justify-center gap-4">
+                </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
