@@ -136,15 +136,23 @@ def calculate_dynamic_price(item_data: dict, current_time: datetime) -> dict:
 # ==========================================
 @app.get("/api/items/{item_id}")
 def get_item(item_id: str):
-    # ① データベースに接続
     conn = sqlite3.connect("gerbera.db")
-    conn.row_factory = sqlite3.Row # カラム名（nameやstockなど）でデータを取り出せるようにする設定
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
+    current_time = datetime.now(JST)
+    current_time_str = current_time.isoformat()
+
+    # ★追加：データを取り出す「直前」に、現在時刻を過ぎている商品の status を一斉に 'expired' に変更！
+    cursor.execute(
+        "UPDATE items SET status = 'expired' WHERE status = 'on_sale' AND expiry_time <= ?",
+        (current_time_str,)
+    )
+    conn.commit() # 変更を保存
+
     # ② SQLを発行して該当するIDのデータを検索
     cursor.execute("SELECT * FROM items WHERE id = ?", (item_id,))
     row = cursor.fetchone()
-    
 
     if not row:
         conn.close()
@@ -152,8 +160,20 @@ def get_item(item_id: str):
     
     # ③ データベースの行データをPythonの辞書に変換
     item_data = dict(row)
+    
+    # 【追加チェック】もし自分が検索した商品が今まさに期限切れになっていたら、売り切れと同じ扱いにする
+    if item_data["status"] == "expired":
+        conn.close()
+        return {
+            "id": item_data["id"], "name": item_data["name"],
+            "original_price": item_data["original_price"], "current_price": 0,
+            "discount_rate": 0, "stock": 0, "status": "expired",
+            "expiry_time": item_data["expiry_time"]
+        }
+
     item_name = item_data["name"]
 
+    # 販売中の在庫だけをカウント（期限切れは上で expired になったのでカウントされない）
     cursor.execute("SELECT COUNT(*) as current_stock FROM items WHERE name = ? AND status = 'on_sale'", (item_name,))
     stock_count = cursor.fetchone()["current_stock"]
     
@@ -163,10 +183,9 @@ def get_item(item_id: str):
     # SQLiteには日時が文字列(TEXT)で保存されているので、計算用にdatetime型に戻す
     item_data["expiry_time"] = datetime.fromisoformat(item_data["expiry_time"])
     
-    current_time = datetime.now(JST)
-    
     # ④ 計算関数に渡して返す
     return calculate_dynamic_price(item_data, current_time)
+
 
 @app.post("/api/items")
 def create_item(item: ItemCreate):
