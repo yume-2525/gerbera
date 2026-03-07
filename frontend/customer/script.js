@@ -17,7 +17,7 @@
 
   const DETECT_WIDTH = 640;
   const LERP_OLD = 0.7;
-  const LERP_NEW = 0.3;
+  const LERP_NEW = 0.25;
   const AR_TIMEOUT_MS = 2000;
   /** バックエンドAPI（ローカル: uvicorn 等で 8000 番で起動） */
   const API_BASE = 'http://localhost:8000/api/items';
@@ -82,9 +82,10 @@
     return a * (1 - t) + b * t;
   }
 
-  // --- State (multi-QR tracking) ---
+  // --- State (multi-QR tracking & quad scan) ---
   const activeProducts = new Map();
   let lastExpiryUpdateTime = 0;
+  let frameCount = 0;
 
   // --- API Logic ---
   function getRemainingMinutes(expiryTimeIso) {
@@ -508,19 +509,35 @@
     drawVideoToDetectCanvas();
     drawVideoToCameraCanvas();
 
-    const imageData = detectCtx.getImageData(0, 0, detectW, detectH);
+    const now = performance.now();
+    frameCount += 1;
+    const scanMode = frameCount % 4;
+    const scanW = Math.round(detectW * 0.75);
+    const scanH = Math.round(detectH * 0.75);
+    let dx = 0, dy = 0;
+    if (scanMode === 0) { dx = 0; dy = 0; }
+    else if (scanMode === 1) { dx = Math.round(detectW * 0.3); dy = 0; }
+    else if (scanMode === 2) { dx = 0; dy = Math.round(detectH * 0.3); }
+    else { dx = Math.round(detectW * 0.3); dy = Math.round(detectH * 0.3); }
+
+    const imageData = detectCtx.getImageData(dx, dy, scanW, scanH);
     const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 1 });
 
-    const now = performance.now();
-
     if (code && code.location) {
+      const loc = code.location;
+      const adjustedLocation = {
+        topLeftCorner:     { x: loc.topLeftCorner.x + dx, y: loc.topLeftCorner.y + dy },
+        topRightCorner:    { x: loc.topRightCorner.x + dx, y: loc.topRightCorner.y + dy },
+        bottomRightCorner: { x: loc.bottomRightCorner.x + dx, y: loc.bottomRightCorner.y + dy },
+        bottomLeftCorner:  { x: loc.bottomLeftCorner.x + dx, y: loc.bottomLeftCorner.y + dy }
+      };
       const qrId = code.data;
-      const { cx, cy, angle } = getQRCenterAndAngle(code.location);
+      const { cx, cy, angle } = getQRCenterAndAngle(adjustedLocation);
       const sc = detectToScreen(cx, cy);
-      const tl = detectToScreen(code.location.topLeftCorner.x, code.location.topLeftCorner.y);
-      const tr = detectToScreen(code.location.topRightCorner.x, code.location.topRightCorner.y);
-      const br = detectToScreen(code.location.bottomRightCorner.x, code.location.bottomRightCorner.y);
-      const bl = detectToScreen(code.location.bottomLeftCorner.x, code.location.bottomLeftCorner.y);
+      const tl = detectToScreen(adjustedLocation.topLeftCorner.x, adjustedLocation.topLeftCorner.y);
+      const tr = detectToScreen(adjustedLocation.topRightCorner.x, adjustedLocation.topRightCorner.y);
+      const br = detectToScreen(adjustedLocation.bottomRightCorner.x, adjustedLocation.bottomRightCorner.y);
+      const bl = detectToScreen(adjustedLocation.bottomLeftCorner.x, adjustedLocation.bottomLeftCorner.y);
 
       let entry = activeProducts.get(qrId);
 
@@ -576,6 +593,13 @@
         activeProducts.delete(qrId);
       }
     }
+
+    detectCtx.save();
+    detectCtx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+    detectCtx.lineWidth = 2;
+    detectCtx.setLineDash([4, 4]);
+    detectCtx.strokeRect(dx, dy, scanW, scanH);
+    detectCtx.restore();
 
     drawAROverlay();
     requestAnimationFrame(tick);

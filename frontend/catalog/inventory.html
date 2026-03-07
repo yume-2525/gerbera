@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>消費期限の近い在庫一覧 | RescuAR</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div class="max-w-4xl mx-auto px-4 py-6">
+    <!-- ヘッダー・統計エリア -->
+    <header class="mb-6">
+      <h1 class="text-xl font-bold text-slate-800 mb-2">消費期限の近い在庫一覧</h1>
+      <div id="stats-area" class="bg-white rounded-xl shadow-sm border border-slate-200 px-4 py-3 text-slate-700">
+        <span class="font-medium">消費期限が近いお弁当：</span>
+        <span id="total-count" class="text-lg font-bold text-amber-600">0</span>
+        <span class="font-medium">個</span>
+      </div>
+    </header>
+
+    <!-- 商品グリッド（JSで動的挿入） -->
+    <main>
+      <div id="product-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <!-- inventory.js でカードが挿入される -->
+      </div>
+    </main>
+  </div>
+
+  <script src="inventory.js"></script>
+</body>
+</html>
