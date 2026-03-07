@@ -499,6 +499,115 @@
     }
   }
 
+  // --- 購入モーダル・タップ判定 ---
+  const purchaseModal = document.getElementById('purchaseModal');
+  const purchaseModalTitle = document.getElementById('purchaseModalTitle');
+  const purchaseModalMessage = document.getElementById('purchaseModalMessage');
+  const purchaseModalActions = document.getElementById('purchaseModalActions');
+  const purchaseModalYes = document.getElementById('purchaseModalYes');
+  const purchaseModalNo = document.getElementById('purchaseModalNo');
+  const purchaseModalBack = document.getElementById('purchaseModalBack');
+  const purchaseModalBackBtn = document.getElementById('purchaseModalBackBtn');
+
+  let selectedPurchaseId = null;
+  let modalOpen = false;
+
+  function isPointInTag(px, py, entry) {
+    const centerX = entry.smoothedCenterX;
+    const centerY = entry.smoothedCenterY + TAG_OFFSET_Y;
+    const angle = entry.smoothedAngle;
+    const dx = px - centerX;
+    const dy = py - centerY;
+    const cosA = Math.cos(-angle);
+    const sinA = Math.sin(-angle);
+    const localX = dx * cosA - dy * sinA;
+    const localY = dx * sinA + dy * cosA;
+    const hw = TAG_WIDTH / 2;
+    const hh = TAG_HEIGHT / 2;
+    return localX >= -hw && localX <= hw && localY >= -hh && localY <= hh;
+  }
+
+  function getCanvasCoords(e) {
+    const rect = overlayCanvas.getBoundingClientRect();
+    const scaleX = overlayCanvas.width / rect.width;
+    const scaleY = overlayCanvas.height / rect.height;
+    const clientX = e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+    const clientY = e.clientY != null ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  }
+
+  function openPurchaseModal(itemId, productName) {
+    selectedPurchaseId = itemId;
+    modalOpen = true;
+    purchaseModalTitle.textContent = '購入しますか？';
+    purchaseModalMessage.textContent = productName ? productName + ' を購入しますか？' : 'この商品を購入しますか？';
+    purchaseModalActions.classList.remove('hidden');
+    purchaseModalBack.classList.add('hidden');
+    purchaseModal.classList.remove('hidden');
+  }
+
+  function closePurchaseModal() {
+    purchaseModal.classList.add('hidden');
+    modalOpen = false;
+    selectedPurchaseId = null;
+  }
+
+  function showPurchaseResult(success, message) {
+    purchaseModalTitle.textContent = success ? '購入完了' : '';
+    purchaseModalMessage.textContent = message;
+    purchaseModalActions.classList.add('hidden');
+    purchaseModalBack.classList.remove('hidden');
+  }
+
+  function onOverlayPointerDown(e) {
+    if (modalOpen) return;
+    const coords = getCanvasCoords(e);
+    for (const entry of activeProducts.values()) {
+      if (isPointInTag(coords.x, coords.y, entry)) {
+        e.preventDefault();
+        const name = (entry.productInfo && entry.productInfo.name) ? entry.productInfo.name : 'この商品';
+        openPurchaseModal(entry.id, name);
+        return;
+      }
+    }
+  }
+
+  purchaseModalYes.addEventListener('click', function() {
+    if (!selectedPurchaseId) return;
+    const url = API_BASE + '/' + encodeURIComponent(selectedPurchaseId) + '/purchase';
+    fetch(url, { method: 'POST' })
+      .then(function(res) {
+        if (res.ok) {
+          showPurchaseResult(true, 'レスキュー成功！ありがとうございます！');
+          activeProducts.delete(selectedPurchaseId);
+        } else {
+          return res.json().then(function(body) {
+            showPurchaseResult(false, '申し訳ありません、在庫がなくなりました');
+          }, function() {
+            showPurchaseResult(false, '申し訳ありません、在庫がなくなりました');
+          });
+        }
+      })
+      .catch(function() {
+        showPurchaseResult(false, '申し訳ありません、通信に失敗しました');
+      });
+  });
+
+  purchaseModalNo.addEventListener('click', function() {
+    purchaseModalActions.classList.add('hidden');
+    purchaseModalBack.classList.remove('hidden');
+    purchaseModalMessage.textContent = 'キャンセルしました。スキャンに戻ります。';
+  });
+
+  purchaseModalBackBtn.addEventListener('click', function() {
+    closePurchaseModal();
+  });
+
+  overlayCanvas.addEventListener('pointerdown', onOverlayPointerDown);
+
   // --- Main Loop (detection + tick) ---
   function tick() {
     if (!videoEl || videoEl.readyState < 2) {

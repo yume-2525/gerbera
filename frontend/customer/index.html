@@ -17,8 +17,8 @@
     #detectCanvas { position: absolute; left: -9999px; top: 0; }
     /* カメラ表示用Canvas（videoの代わりにここに描画） */
     #cameraCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
-    /* ARオーバーレイ用Canvas（手前） */
-    #overlayCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+    /* ARオーバーレイ用Canvas（手前）。タップ判定のため pointer-events: auto */
+    #overlayCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: auto; }
   </style>
 </head>
 <body class="bg-black">
@@ -34,6 +34,27 @@
     <!-- ローディング表示（カメラ起動前） -->
     <div id="loading" class="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
       <p class="text-white text-lg">カメラを起動しています...</p>
+    </div>
+
+    <!-- 購入確認モーダル -->
+    <div id="purchaseModal" class="hidden absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center">
+        <h2 id="purchaseModalTitle" class="text-lg font-bold text-slate-800 mb-3">購入しますか？</h2>
+        <p id="purchaseModalMessage" class="text-slate-600 mb-4"></p>
+        <div id="purchaseModalActions" class="space-y-2">
+          <button id="purchaseModalYes" type="button" class="w-full py-3 px-4 rounded-xl font-medium bg-red-500 text-white hover:bg-red-600">
+            はい（購入する）
+          </button>
+          <button id="purchaseModalNo" type="button" class="w-full py-3 px-4 rounded-xl font-medium bg-slate-200 text-slate-700 hover:bg-slate-300">
+            いいえ
+          </button>
+        </div>
+        <div id="purchaseModalBack" class="hidden mt-2">
+          <button id="purchaseModalBackBtn" type="button" class="w-full py-3 px-4 rounded-xl font-medium bg-slate-500 text-white hover:bg-slate-600">
+            スキャンに戻る
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
