@@ -1,15 +1,67 @@
-// 1. 初期値の設定（日本時間の現在時刻から3時間後をセット）
-function setDefaultExpiry() {
-    const now = new Date();
-    // タイムゾーンのオフセット（日本は+9時間）を考慮してローカル時間を計算
-    const jstNow = new Date(now.getTime() + (9 * 60 * 60 * 1000));
-    jstNow.setHours(jstNow.getHours() + 3); 
+// ★ 1. 書き換え可能な商品データの定義（let を使用）
+let PRESET_DATA = {
+    bento: [
+        { name: 'チキン南蛮弁当', original: 600, min: 300 },
+        { name: '特製幕の内弁当', original: 750, min: 400 },
+        { name: '三元豚のロースかつ重', original: 680, min: 350 },
+        { name: '鮭の塩焼き弁当', original: 550, min: 280 }
+    ],
+    salad: [
+        { name: '1/2日分の野菜サラダ', original: 450, min: 220 },
+        { name: 'ポテトサラダ（大）', original: 300, min: 150 },
+        { name: '蒸し鶏のチョレギサラダ', original: 480, min: 240 }
+    ],
+    onigiri: [
+        { name: '手作りおにぎり（ツナマヨ）', original: 160, min: 80 },
+        { name: '手作りおにぎり（鮭）', original: 180, min: 90 },
+        { name: '手作りおにぎり（昆布）', original: 150, min: 70 }
+    ]
+};
+
+// ★ 2. 子メニュー（商品リスト）を表示する関数
+function showSubMenu(category) {
+    const submenu = document.getElementById('preset-submenu');
+    const itemsContainer = document.getElementById('submenu-items');
+    const title = document.getElementById('submenu-title');
     
-    // datetime-localが受け取れる "YYYY-MM-DDTHH:mm" 形式にカット
-    const defaultTime = jstNow.toISOString().slice(0, 16);
-    document.getElementById('expiry_time').value = defaultTime;
+    if (!submenu || !itemsContainer) return;
+
+    itemsContainer.innerHTML = '';
+    title.textContent = `Select ${category}`;
+    
+    PRESET_DATA[category].forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'bg-white border border-slate-200 px-3 py-1.5 rounded-md text-[11px] font-bold text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-all shadow-sm';
+        btn.textContent = item.name;
+        // プリセット適用時に、その時点での最新価格（item.original, item.min）を渡す
+        btn.onclick = () => applyPreset(item.name, item.original, item.min);
+        itemsContainer.appendChild(btn);
+    });
+    
+    submenu.classList.remove('hidden');
 }
 
+// プリセットを適用する関数
+function applyPreset(name, originalPrice, minPrice) {
+    document.getElementById('name').value = name;
+    document.getElementById('original_price').value = originalPrice;
+    document.getElementById('min_price').value = minPrice;
+    
+    // 3時間後の期限設定
+    const now = new Date();
+    const jstNow = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+    jstNow.setHours(jstNow.getHours() + 3); 
+    const expiryString = jstNow.toISOString().slice(0, 16);
+    document.getElementById('expiry_time').value = expiryString;
+
+    // 視覚的なフィードバック（左側のフォームを光らせる）
+    const formContainer = document.querySelector('.lg\\:w-1\\/3');
+    if (formContainer) {
+        formContainer.classList.add('ring-4', 'ring-blue-500/20');
+        setTimeout(() => formContainer.classList.remove('ring-4', 'ring-blue-500/20'), 600);
+    }
+}
 // ページ読み込み時に実行
 setDefaultExpiry();
 
@@ -237,7 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ▼ ここから追加：在庫一覧と強制売り切れ機能 ▼
 // ==========================================
 
-// 在庫データを取得して表示する関数
+// 在庫データを取得してカテゴリ別に表示する関数
 async function loadInventory() {
     const container = document.getElementById('inventoryContainer');
     if (!container) return;
@@ -248,61 +300,83 @@ async function loadInventory() {
         if (!response.ok) throw new Error('在庫の取得に失敗しました');
         const items = await response.json();
 
-        // 商品名と賞味期限でグループ化する（カタログ画面と同じ要領）
-        const grouped = {};
+        // --- カテゴリ判定ロジック ---
+        const categorize = (name) => {
+            for (const [cat, productList] of Object.entries(PRESET_DATA)) {
+                if (productList.some(p => p.name === name)) return cat;
+            }
+            return 'others'; // プリセットにない場合は「その他」
+        };
+
+        const categoryNames = { bento: '🍱 お弁当', salad: '🥗 サラダ', onigiri: '🍙 おにぎり', others: '📦 その他' };
+        
+        // データをカテゴリ > 商品名+期限 でネストしてグループ化
+        const grouped = { bento: {}, salad: {}, onigiri: {}, others: {} };
+
         items.forEach(item => {
+            const cat = categorize(item.name);
             const key = item.name + '_' + item.expiry_time;
-            if (!grouped[key]) {
-                grouped[key] = {
+            
+            if (!grouped[cat][key]) {
+                grouped[cat][key] = {
                     name: item.name,
                     expiry_time: item.expiry_time,
-                    original_price: item.original_price,
-                    ids: [] // このグループに属するIDのリストを保持
+                    ids: []
                 };
             }
-            grouped[key].ids.push(item.id);
+            grouped[cat][key].ids.push(item.id);
         });
 
-        const groups = Object.values(grouped);
+        // HTML生成
+        container.innerHTML = '';
+        let hasAnyItem = false;
 
-        if (groups.length === 0) {
-            container.innerHTML = '<p class="text-gray-500 col-span-full font-bold text-lg text-center py-8">現在、販売中の商品はありません。</p>';
-            return;
+        for (const [catKey, itemsInCat] of Object.entries(grouped)) {
+            const groupValues = Object.values(itemsInCat);
+            if (groupValues.length === 0) continue; // 空のカテゴリは表示しない
+            hasAnyItem = true;
+
+            // カテゴリの見出しを作成
+            const section = document.createElement('div');
+            section.className = 'col-span-full mt-4 mb-2';
+            section.innerHTML = `<h3 class="text-sm font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-full w-fit">${categoryNames[catKey]}</h3>`;
+            container.appendChild(section);
+
+            // カテゴリ内の商品カードを作成
+            groupValues.forEach(g => {
+                const d = new Date(g.expiry_time);
+                const formattedTime = `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+                
+                const card = document.createElement('div');
+                card.className = 'bg-white border-2 border-slate-200 p-4 rounded-xl flex justify-between items-center shadow-sm hover:border-blue-200 transition-colors';
+                
+                const targetId = g.ids[0];
+
+                card.innerHTML = `
+                    <div>
+                        <div class="font-extrabold text-slate-800 text-base">${g.name}</div>
+                        <div class="text-[11px] text-slate-400 mt-1 font-bold">期限: ${formattedTime}</div>
+                    </div>
+                    <div class="text-right flex flex-col items-end gap-1">
+                        <div class="text-2xl font-black text-slate-700 leading-none">${g.ids.length}<span class="text-xs font-bold text-slate-400 ml-1">個</span></div>
+                        <button onclick="forceSoldOut('${targetId}')" class="text-red-400 hover:text-red-600 text-[10px] font-bold mt-1 underline decoration-dotted">
+                            1個減らす
+                        </button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
         }
 
-        container.innerHTML = '';
-        groups.forEach(g => {
-            // 時間のフォーマット (例: 3/8 14:30)
-            const d = new Date(g.expiry_time);
-            const formattedTime = `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-
-            const card = document.createElement('div');
-            card.className = 'bg-slate-50 border-2 border-slate-200 p-4 rounded-xl flex justify-between items-center shadow-sm hover:border-slate-300 transition-colors';
-
-            // 削除用に使うID（リストの最初の1つを取り出す）
-            const targetId = g.ids[0];
-
-            card.innerHTML = `
-                <div>
-                    <div class="font-extrabold text-slate-800 text-lg">${g.name}</div>
-                    <div class="text-sm text-slate-500 mt-1 font-medium">期限: ${formattedTime}</div>
-                </div>
-                <div class="text-right flex flex-col items-end gap-2">
-                    <div class="text-3xl font-black text-slate-700 leading-none">${g.ids.length}<span class="text-sm font-bold text-slate-500 ml-1">個</span></div>
-                    <button onclick="forceSoldOut('${targetId}')" class="bg-red-50 text-red-600 border-2 border-red-200 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-red-100 hover:border-red-300 transition-colors flex items-center gap-1 shadow-sm mt-1">
-                        🗑️ 1個減らす
-                    </button>
-                </div>
-            `;
-            container.appendChild(card);
-        });
+        if (!hasAnyItem) {
+            container.innerHTML = '<p class="text-gray-500 col-span-full font-bold text-lg text-center py-8">現在、販売中の商品はありません。</p>';
+        }
 
     } catch (error) {
         console.error(error);
         container.innerHTML = '<p class="text-red-500 font-bold col-span-full">在庫の読み込みに失敗しました。</p>';
     }
 }
-
 // 強制的に売り切れ（1個減らす）にする処理
 async function forceSoldOut(itemId) {
     if (!confirm('この商品を1個「売り切れ」にしますか？\n（アプリを通さずに店頭で売れた場合など）')) {
@@ -324,4 +398,5 @@ async function forceSoldOut(itemId) {
         alert('処理に失敗しました。');
     }
 }
+
 
