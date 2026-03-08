@@ -13,22 +13,35 @@ function setDefaultExpiry() {
 // ページ読み込み時に実行
 setDefaultExpiry();
 
+// --- 1. 商品登録処理（現在のレイアウト専用） ---
 async function registerItem(event) {
-    if (event) event.preventDefault(); // フォームのデフォルト送信を防止
-    // ボタンの連打防止
-    const submitBtn = document.getElementById('registerBtn');
-    submitBtn.disabled = true;
-    submitBtn.innerText = "登録中...";
+    if (event) event.preventDefault();
 
-    // 入力データの取得
+    const submitBtn = document.getElementById('registerBtn');
+    // qrcodeContainerは隠し要素としてHTMLに存在する必要があります
+    const container = document.getElementById('qrcodeContainer');
+
+    if (!submitBtn) return; // エラー防止
+
     const itemData = {
         name: document.getElementById('name').value,
         original_price: parseInt(document.getElementById('original_price').value),
         min_price: parseInt(document.getElementById('min_price').value),
         stock: parseInt(document.getElementById('stock').value),
-        // datetime-localの値をISO形式+JSTタイムゾーン(+09:00)に変換
+        // ISO形式に変換
         expiry_time: document.getElementById('expiry_time').value + ":00+09:00"
     };
+
+    // 簡易バリデーション
+    if (!itemData.name || isNaN(itemData.original_price) || isNaN(itemData.stock)) {
+        alert("入力内容に不備があります。");
+        return;
+    }
+
+    // 処理開始
+    submitBtn.disabled = true;
+    submitBtn.innerText = "登録＆PDF作成中...";
+    container.innerHTML = ""; 
 
     try {
         const response = await fetch('https://gerbera-backend-jb9g.onrender.com/api/items', {
@@ -37,84 +50,16 @@ async function registerItem(event) {
             body: JSON.stringify(itemData)
         });
 
-        if (!response.ok) throw new Error("サーバーエラー");
-
+        if (!response.ok) throw new Error("サーバーエラーが発生しました。");
         const data = await response.json();
         
-        // --- 表示処理 ---
-        
-        // 1. 結果エリア全体を見えるようにする
-        const resultArea = document.getElementById('resultArea');
-        resultArea.classList.remove('hidden');
-
-        // 2. QRコードを入れるコンテナを空にする
-        const container = document.getElementById('qrcodeContainer');
-        container.innerHTML = ""; 
-
-        // 3. 在庫数分（data.ids）のQRコードを生成して追加
+        // PDF用のラベルを隠しエリアに生成
         data.ids.forEach((id, index) => {
-            const card = document.createElement('div');
-            // ★変更：幅を大きく広げ(w-[400px])、横長のシールにする
-            card.className = "bg-white p-2 border-2 border-gray-300 w-[400px] flex flex-col qr-label shadow-sm shrink-0 rounded-sm";
-            card.style.fontFamily = "'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif";
-
-            // ① 黄色いキャッチコピー帯
-            const banner = document.createElement('div');
-            banner.className = "bg-yellow-400 text-black font-extrabold text-center text-lg py-1 mb-2 border border-yellow-500 rounded-sm tracking-widest";
-            banner.innerText = "QRで現在の価格をチェック";
-            card.appendChild(banner);
-
-            // ② 中段エリア（左：QR、右：商品名と定価）
-            const middleRow = document.createElement('div');
-            // 安定させるため px-1 に加えて py-1（上下余白）を足すのがおすすめです
-            middleRow.className = "flex justify-between items-center px-1 py-1";
-
-            const qrWrapper = document.createElement('div');
-            qrWrapper.className = "flex-shrink-0";
-            const qrDiv = document.createElement('div');
-            qrDiv.id = `qr-${index}`;
-            qrWrapper.appendChild(qrDiv);
-            middleRow.appendChild(qrWrapper);
-
-            const rightInfo = document.createElement('div');
-            rightInfo.className = "ml-3 flex flex-col justify-center w-full text-right";
-            rightInfo.innerHTML = `
-                <div class="text-xl font-extrabold text-gray-900 whitespace-nowrap pb-1 mb-1">${itemData.name}</div>
-                <div class="text-xs font-bold text-gray-600">定価(円)</div>
-                <div class="text-4xl font-extrabold text-gray-900 pb-1">${itemData.original_price}</div>
-            `;
-            middleRow.appendChild(rightInfo);
-            card.appendChild(middleRow);
-            
-            // ③ 下段エリア（保存方法と消費期限）
-            const bottomRow = document.createElement('div');
-            bottomRow.className = "flex justify-between items-end border-t border-gray-400 pt-1 mt-2 px-1";
-
-            const d = new Date(itemData.expiry_time);
-            const yy = String(d.getFullYear()).slice(-2);
-            const mm = d.getMonth() + 1;
-            const dd = d.getDate();
-            const h = d.getHours();
-            const ampm = h < 12 ? '午前' : '午後';
-            const h12 = h % 12 || 12;
-            const min = d.getMinutes() === 0 ? '00' : String(d.getMinutes()).padStart(2, '0');
-            const formattedExpiry = `${yy}. ${mm}.${dd} ${ampm} ${h12}時${min}分`;
-
-            bottomRow.innerHTML = `
-                <div class="flex flex-col text-gray-800 text-left">
-                    <p class="text-[9px] mb-1">直射日光・高温多湿を避け保存</p>
-                    <div class="flex items-baseline gap-2">
-                        <span class="text-xs font-bold">消費期限</span>
-                        <span class="text-sm font-extrabold text-gray-900">${formattedExpiry}</span>
-                    </div>
-                </div>
-                <div class="text-[9px] text-gray-400">ID: ${id.split('_')[1]}</div>
-            `;
-            card.appendChild(bottomRow);
+            const card = createLabelElementForPDF(id, itemData, index);
             container.appendChild(card);
-
-            // QRコードの生成（サイズを少し小さくしてバランスをとる）
-            new QRCode(qrDiv, {
+            
+            // QRコードの描画
+            new QRCode(document.getElementById(`qr-pdf-${index}`), {
                 text: id,
                 width: 64,
                 height: 64,
@@ -124,57 +69,112 @@ async function registerItem(event) {
             });
         });
 
-        // スムーズに結果画面までスクロール
-        resultArea.scrollIntoView({ behavior: 'smooth' });
+        // QRコードの描画時間を待つ（500msから1.5秒に増やして安定させます）
+        // 描画待ち時間を1.5秒（1500ms）に設定
+        setTimeout(async () => {
+            try {
+                await downloadPDF(); 
+                container.innerHTML = ""; 
+                loadInventory(); 
+                alert("登録完了！PDFをダウンロードしました。");
+            } catch (pdfErr) {
+                console.error("PDF生成失敗:", pdfErr);
+                alert("PDFの作成に失敗しました。もう一度試してください。");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "登録してQRコードを発行";
+            }
+        }, 1500); // ここを1500に！
 
     } catch (e) {
         console.error("登録エラー:", e);
-        alert("登録に失敗しました。サーバーが起動しているか確認してください。");
-    } finally {
+        alert("登録に失敗しました。URLやネットワークを確認してください。");
         submitBtn.disabled = false;
         submitBtn.innerText = "登録してQRコードを発行";
     }
 }
 
+// --- 2. PDF用ラベル作成補助関数 ---
+function createLabelElementForPDF(id, itemData, index) {
+    const card = document.createElement('div');
+    // PDF生成時にhtml2canvasが認識できるようにクラスを付与
+    card.className = "qr-label bg-white p-2 border-2 border-gray-300 w-[400px] flex flex-col mb-4";
+    
+    const d = new Date(itemData.expiry_time);
+    const formattedExpiry = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}時${d.getMinutes()}分`;
+
+    card.innerHTML = `
+        <div class="bg-yellow-400 text-black font-extrabold text-center text-lg py-1 mb-2">QRコードを読み取って現在の価格をチェック</div>
+        <div class="flex justify-between items-center px-2">
+            <div id="qr-pdf-${index}"></div>
+            <div class="ml-3 text-right w-full">
+                <div class="text-xl font-bold text-gray-900">${itemData.name}</div>
+                <div class="text-3xl font-black text-gray-900">${itemData.original_price}円</div>
+            </div>
+        </div>
+        <div class="border-t border-gray-400 pt-1 mt-2 text-[10px] flex justify-between">
+            <span>消費期限: ${formattedExpiry}</span>
+            <span>ID: ${id.slice(-8)}</span>
+        </div>
+    `;
+    return card;
+}
 
 // ====== PDF生成関数の調整 ======
+// ====== PDF生成関数の調整（エラー箇所を修正） ======
 async function downloadPDF() {
+    // ボタンの存在チェックを入れて、エラーを防ぐ
     const pdfBtn = document.querySelector('button[onclick="downloadPDF()"]');
-    const originalText = pdfBtn.innerText;
-    pdfBtn.innerText = "PDF作成中...";
-    pdfBtn.disabled = true;
+    let originalText = "";
+    if (pdfBtn) {
+        originalText = pdfBtn.innerText;
+        pdfBtn.innerText = "PDF作成中...";
+        pdfBtn.disabled = true;
+    }
 
     try {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         
         const labels = document.querySelectorAll('.qr-label');
-        const itemName = document.getElementById('name').value;
+        // 入力フォームから商品名を取得
+        const itemName = document.getElementById('name').value || "label";
 
         if (labels.length === 0) {
-            alert("保存するラベルがありません。");
+            console.warn("保存するラベルがありません。");
             return;
         }
 
         let x = 10;
         let y = 10;
-        // ★変更：横長のシールに合わせてPDF上のサイズも横長に
         const labelWidth = 90;  
         const labelHeight = 45; 
 
         for (let i = 0; i < labels.length; i++) {
-            const canvas = await html2canvas(labels[i], { scale: 2 });
-            const imgData = canvas.toDataURL('image/png');
+            // 背景を白に強制し、確実に描画させる設定
+            const canvas = await html2canvas(labels[i], { 
+                scale: 1.5, 
+                useCORS: true, 
+                backgroundColor: "#ffffff", // 背景を白にする
+                logging: false 
+            });
+            
+            const imgData = canvas.toDataURL('image/jpeg', 0.9);
 
-            doc.addImage(imgData, 'PNG', x, y, labelWidth, labelHeight);
+            // 画像が空（真っ白）でないかチェック（デバッグ用）
+            if (imgData === "data:,") {
+                console.error("ラベルの画像化に失敗しました:", i);
+                continue;
+            }
 
-            // ★変更：横幅が広くなったので、1段に並べられるのは2枚まで
+            doc.addImage(imgData, 'JPEG', x, y, labelWidth, labelHeight);
+
+            // 以降の座標計算ロジックはそのまま
             x += labelWidth + 10;
             if (x + labelWidth > 200) { 
                 x = 10;
                 y += labelHeight + 10;
             }
-
             if (y + labelHeight > 280 && i < labels.length - 1) {
                 doc.addPage();
                 y = 10;
@@ -185,13 +185,14 @@ async function downloadPDF() {
         doc.save(`${itemName}_labels.pdf`);
     } catch (error) {
         console.error("PDF生成エラー:", error);
-        alert("PDFの作成に失敗しました。");
+        throw error; // 上の階層（registerItem）にエラーを伝えてアラートを出す
     } finally {
-        pdfBtn.innerText = originalText;
-        pdfBtn.disabled = false;
+        if (pdfBtn) {
+            pdfBtn.innerText = originalText;
+            pdfBtn.disabled = false;
+        }
     }
 }
-
 
 // ページが読み込まれたら実行
 document.addEventListener('DOMContentLoaded', async () => {
@@ -231,3 +232,96 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('商品テンプレートの取得に失敗しました:', error);
     }
 });
+
+// ==========================================
+// ▼ ここから追加：在庫一覧と強制売り切れ機能 ▼
+// ==========================================
+
+// 在庫データを取得して表示する関数
+async function loadInventory() {
+    const container = document.getElementById('inventoryContainer');
+    if (!container) return;
+    container.innerHTML = '<p class="text-gray-500 col-span-full font-bold">読み込み中...</p>';
+
+    try {
+        const response = await fetch('https://gerbera-backend-jb9g.onrender.com/api/items');
+        if (!response.ok) throw new Error('在庫の取得に失敗しました');
+        const items = await response.json();
+
+        // 商品名と賞味期限でグループ化する（カタログ画面と同じ要領）
+        const grouped = {};
+        items.forEach(item => {
+            const key = item.name + '_' + item.expiry_time;
+            if (!grouped[key]) {
+                grouped[key] = {
+                    name: item.name,
+                    expiry_time: item.expiry_time,
+                    original_price: item.original_price,
+                    ids: [] // このグループに属するIDのリストを保持
+                };
+            }
+            grouped[key].ids.push(item.id);
+        });
+
+        const groups = Object.values(grouped);
+
+        if (groups.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 col-span-full font-bold text-lg text-center py-8">現在、販売中の商品はありません。</p>';
+            return;
+        }
+
+        container.innerHTML = '';
+        groups.forEach(g => {
+            // 時間のフォーマット (例: 3/8 14:30)
+            const d = new Date(g.expiry_time);
+            const formattedTime = `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+
+            const card = document.createElement('div');
+            card.className = 'bg-slate-50 border-2 border-slate-200 p-4 rounded-xl flex justify-between items-center shadow-sm hover:border-slate-300 transition-colors';
+
+            // 削除用に使うID（リストの最初の1つを取り出す）
+            const targetId = g.ids[0];
+
+            card.innerHTML = `
+                <div>
+                    <div class="font-extrabold text-slate-800 text-lg">${g.name}</div>
+                    <div class="text-sm text-slate-500 mt-1 font-medium">期限: ${formattedTime}</div>
+                </div>
+                <div class="text-right flex flex-col items-end gap-2">
+                    <div class="text-3xl font-black text-slate-700 leading-none">${g.ids.length}<span class="text-sm font-bold text-slate-500 ml-1">個</span></div>
+                    <button onclick="forceSoldOut('${targetId}')" class="bg-red-50 text-red-600 border-2 border-red-200 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-red-100 hover:border-red-300 transition-colors flex items-center gap-1 shadow-sm mt-1">
+                        🗑️ 1個減らす
+                    </button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+
+    } catch (error) {
+        console.error(error);
+        container.innerHTML = '<p class="text-red-500 font-bold col-span-full">在庫の読み込みに失敗しました。</p>';
+    }
+}
+
+// 強制的に売り切れ（1個減らす）にする処理
+async function forceSoldOut(itemId) {
+    if (!confirm('この商品を1個「売り切れ」にしますか？\n（アプリを通さずに店頭で売れた場合など）')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`https://gerbera-backend-jb9g.onrender.com/api/items/${itemId}/purchase`, {
+            method: 'POST'
+        });
+
+        if (!response.ok) throw new Error('更新に失敗しました');
+
+        // 成功したら在庫一覧を再読み込みする
+        loadInventory();
+
+    } catch (error) {
+        console.error(error);
+        alert('処理に失敗しました。');
+    }
+}
+

@@ -17,9 +17,29 @@
         <span class="mr-1">←</span> ホームに戻る
       </a>
       
-      <h1 class="text-xl font-bold text-slate-800 mb-2">お弁当カタログ</h1>
+      <div class="flex justify-between items-end mb-4">
+        <h1 class="text-xl font-bold text-slate-800">お弁当カタログ</h1>
+        <select id="sort-select" class="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block p-2 shadow-sm outline-none cursor-pointer">
+          <option value="recommend">🔥 おすすめ順</option>
+          <option value="expiry_asc">⏳ 期限が近い順</option>
+          <option value="price_asc">💴 価格が安い順</option>
+          <option value="discount_desc">✨ おトク額が大きい順</option>
+        </select>
+      </div>
+
+      <div class="flex gap-2 overflow-x-auto pb-2 mb-4" style="scrollbar-width: none; -ms-overflow-style: none;">
+        <button data-category="all" class="filter-btn bg-amber-500 text-white px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap shadow-sm transition-colors">🍱 すべて</button>
+        <button data-category="bento" class="filter-btn bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap hover:bg-slate-50 transition-colors">🍱 お弁当</button>
+        <button data-category="salad" class="filter-btn bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap hover:bg-slate-50 transition-colors">🥗 サラダ</button>
+        <button data-category="onigiri" class="filter-btn bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap hover:bg-slate-50 transition-colors">🍙 おにぎり</button>
+        <button data-category="meat" class="filter-btn bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap hover:bg-slate-50 transition-colors">🥩 お肉</button>
+        <button data-category="fish" class="filter-btn bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap hover:bg-slate-50 transition-colors">🐟 お魚</button>
+        
+        <button data-category="other" class="filter-btn bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap hover:bg-slate-50 transition-colors">🍲 その他</button>
+      </div>
+
       <div id="stats-area" class="bg-white rounded-xl shadow-sm border border-slate-200 px-4 py-3 text-slate-700">
-        <span class="font-medium">消費期限が近いお弁当：</span>
+        <span class="font-medium">消費期限が近い商品：</span>
         <span id="total-count" class="text-lg font-bold text-amber-600">0</span>
         <span class="font-medium">個</span>
       </div>
