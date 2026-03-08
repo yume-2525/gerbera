@@ -7,6 +7,11 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 import math
 
+import google.generativeai as genai
+import os
+
+# TODO: ここに取得したGemini APIキーを入れます（ハッカソン中は直書きが一番早いです！）
+genai.configure(api_key="あなたの_API_KEY_をここに入力")
 
 # フロントエンドからPOSTで送られてくるデータの形式
 class ItemCreate(BaseModel):
@@ -136,25 +141,35 @@ def calculate_dynamic_price(item_data: dict, current_time: datetime) -> dict:
 # ==========================================
 @app.get("/api/items")
 def get_all_items():
-    """商品一覧（カタログ・在庫一覧ページ用）。全件を賞味期限の昇順で返す。"""
+    """商品一覧（カタログ・在庫一覧ページ用）。販売中の全件を賞味期限の昇順で返す。"""
     conn = sqlite3.connect("gerbera.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM items ORDER BY expiry_time ASC")
+
+    # ★追加：データ取得の直前に、現在時刻を過ぎている商品の status を 'expired' に更新
+    current_time_str = datetime.now(JST).isoformat()
+    cursor.execute(
+        "UPDATE items SET status = 'expired' WHERE status = 'on_sale' AND expiry_time <= ?",
+        (current_time_str,)
+    )
+    conn.commit()
+
+    # ★変更：status が 'on_sale' のものだけを取得する (WHERE status = 'on_sale' を追加)
+    cursor.execute("SELECT * FROM items WHERE status = 'on_sale' ORDER BY expiry_time ASC")
     rows = cursor.fetchall()
     conn.close()
+    
     return [
         {
             "id": row["id"],
             "name": row["name"],
             "original_price": row["original_price"],
             "min_price": row["min_price"],
-            "stock": row["stock"],
             "expiry_time": row["expiry_time"],
+            "status": row["status"] # フロントエンドでの判定用にステータスも送る
         }
         for row in rows
     ]
-
 
 @app.get("/api/items/{item_id}")
 def get_item(item_id: str):
@@ -281,3 +296,4 @@ def get_item_templates():
     
     # 辞書のリストとして返す
     return [dict(row) for row in rows]
+

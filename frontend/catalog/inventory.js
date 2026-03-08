@@ -14,74 +14,109 @@
   }
 
   /**
-   * 期限が近いほど高得点になる「ありがとうポイント」
-   * 残り60分以内で最大100pt、残り時間が長いほど減点
+   * 現在の割引価格を計算する関数（main.py のロジックをJSで簡易再現）
    */
-  function calcThankYouPoints(remainingMinutes) {
-    if (remainingMinutes == null || remainingMinutes < 0) return 0;
-    if (remainingMinutes <= 60) return Math.max(0, Math.round(100 - remainingMinutes * 0.5));
-    if (remainingMinutes <= 360) return Math.max(0, Math.round(50 - (remainingMinutes - 60) / 6));
-    return Math.max(0, Math.round(10 - remainingMinutes / 60));
+  function calculateCurrentPrice(originalPrice, minPrice, expiryTimeIso) {
+    const remainingMinutes = getRemainingMinutes(expiryTimeIso);
+    if (remainingMinutes == null) return originalPrice;
+    
+    const t_hours = remainingMinutes / 60;
+    const T_hours = 6.0;
+
+    if (t_hours <= 0) return 0; // 期限切れ
+    if (t_hours >= T_hours) return originalPrice; // まだ定価
+
+    // バックエンドでは在庫数(alpha)を考慮していますが、
+    // ここでは一覧表示用のおおよその現在価格として、alpha=1 (直線的な割引) で計算します。
+    // より正確な価格を出すには、バックエンド側で現在価格を計算して返すエンドポイントを作るのが理想です。
+    let currentPrice = minPrice + (originalPrice - minPrice) * (t_hours / T_hours);
+    return Math.floor(currentPrice / 10) * 10;
   }
 
   /**
-   * APIから全件取得 → 商品名で集約し、残り時間昇順でソート
+   * APIから全件取得 → 商品名で集約し、さらに賞味期限ごとにグループ化
    */
   function fetchAndProcessItems() {
     return fetch(API_BASE)
       .then(function(res) { return res.ok ? res.json() : []; })
       .then(function(rows) {
         const byName = {};
+        
+        // 1. まずは「商品名」でグループ化
         rows.forEach(function(row) {
+          const remainingMinutes = getRemainingMinutes(row.expiry_time);
+          if (remainingMinutes == null || remainingMinutes < 0) return; 
+          if (row.status && row.status !== 'on_sale') return;
+          
           const name = row.name || '（名前なし）';
           if (!byName[name]) {
             byName[name] = {
               name: name,
-              stock: 0,
-              earliestExpiry: null,
               original_price: row.original_price,
               min_price: row.min_price,
-              ids: []
+              totalStock: 0,
+              batches: {} // 賞味期限ごとのグループ
             };
           }
-          byName[name].stock += row.stock || 1;
-          byName[name].ids.push(row.id);
+          
+          byName[name].totalStock += 1; // 1行 = 1個なので +1
+
+          // 2. さらに同じ商品の中で「賞味期限」ごとにグループ化
           const exp = row.expiry_time;
-          if (exp) {
-            const t = new Date(exp).getTime();
-            if (!byName[name].earliestExpiry || t < byName[name].earliestExpiry) {
-              byName[name].earliestExpiry = t;
-              byName[name].expiry_time = exp;
-            }
+          if (!byName[name].batches[exp]) {
+            byName[name].batches[exp] = {
+              expiry_time: exp,
+              count: 0,
+              remainingMinutes: getRemainingMinutes(exp)
+            };
           }
+          byName[name].batches[exp].count += 1;
         });
-        const products = Object.values(byName).map(function(p) {
-          const remaining = getRemainingMinutes(p.expiry_time);
+
+        // 3. 表示しやすいように配列に変換し、ソートする
+        return Object.values(byName).map(function(p) {
+          // batchesを配列にして、残り時間が少ない順（期限が近い順）にソート
+          const sortedBatches = Object.values(p.batches).sort((a, b) => {
+             const ra = a.remainingMinutes == null ? 999999 : a.remainingMinutes;
+             const rb = b.remainingMinutes == null ? 999999 : b.remainingMinutes;
+             return ra - rb;
+          });
+
+          // グループ全体での最短の残り時間を取得（親カードの表示用）
+          const earliestBatch = sortedBatches[0];
+
           return {
             name: p.name,
-            stock: p.stock,
-            expiry_time: p.expiry_time,
-            remainingMinutes: remaining,
+            totalStock: p.totalStock,
             original_price: p.original_price,
             min_price: p.min_price,
-            thankYouPoints: calcThankYouPoints(remaining)
+            earliestRemainingMinutes: earliestBatch ? earliestBatch.remainingMinutes : null,
+            batches: sortedBatches
           };
-        });
-        products.sort(function(a, b) {
-          const ra = a.remainingMinutes == null ? 999999 : a.remainingMinutes;
-          const rb = b.remainingMinutes == null ? 999999 : b.remainingMinutes;
+        }).sort(function(a, b) {
+          // 商品一覧全体も、一番期限が近いものが含まれている順にソート
+          const ra = a.earliestRemainingMinutes == null ? 999999 : a.earliestRemainingMinutes;
+          const rb = b.earliestRemainingMinutes == null ? 999999 : b.earliestRemainingMinutes;
           return ra - rb;
         });
-        return products;
       });
   }
 
-  /**
-   * 在庫の最大値（プログレスバー用）。商品ごとのstockの最大で10程度を想定
-   */
-  function getStockMax(products) {
-    const m = Math.max.apply(null, products.map(function(p) { return p.stock; }));
-    return Math.max(10, m);
+  // HTMLエスケープ処理
+  function escapeHtml(s) {
+    if (!s) return '';
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  // 時間をフォーマットする（例: 14:30）
+  function formatTime(isoString) {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const h = date.getHours().toString().padStart(2, '0');
+    const m = date.getMinutes().toString().padStart(2, '0');
+    return h + ':' + m;
   }
 
   function render(products) {
@@ -89,51 +124,77 @@
     const totalEl = document.getElementById('total-count');
     if (!grid) return;
 
-    const totalStock = products.reduce(function(acc, p) { return acc + p.stock; }, 0);
-    if (totalEl) totalEl.textContent = totalStock;
+    // 全体の在庫数を計算して表示
+    const grandTotalStock = products.reduce(function(acc, p) { return acc + p.totalStock; }, 0);
+    if (totalEl) totalEl.textContent = grandTotalStock;
 
     grid.innerHTML = '';
-    const stockMax = getStockMax(products);
 
-    products.forEach(function(p) {
-      const remaining = p.remainingMinutes;
-      const isUrgent = remaining != null && remaining < 60;
-      const stockPct = stockMax > 0 ? Math.min(100, (p.stock / stockMax) * 100) : 0;
+    // 取得した商品グループごとにHTMLを生成
+    products.forEach(function(p, index) {
+      const isUrgent = p.earliestRemainingMinutes != null && p.earliestRemainingMinutes < 60;
 
+      // 1. 親カード（商品ごとのサマリー）を作成
       const card = document.createElement('div');
-      card.className = 'bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col';
-      card.innerHTML =
-        '<div class="p-4 flex-1">' +
-          (isUrgent ? '<span class="text-2xl" aria-hidden="true">😢</span> ' : '') +
-          '<h2 class="font-bold text-slate-800 text-lg">' + escapeHtml(p.name) + '</h2>' +
-          '<p class="text-sm text-slate-500 mt-1">残り時間: ' + (remaining != null ? (remaining < 0 ? '期限切れ' : remaining + '分') : '—') + '</p>' +
-          '<p class="text-sm text-amber-600 font-medium mt-1">ありがとうポイント: ' + p.thankYouPoints + ' pt</p>' +
-          '<div class="mt-2">' +
-            '<div class="flex justify-between text-xs text-slate-500 mb-0.5">' +
-              '<span>在庫</span><span>' + p.stock + ' 個</span>' +
-            '</div>' +
-            '<div class="h-2 bg-slate-200 rounded-full overflow-hidden">' +
-              '<div class="h-full bg-emerald-500 rounded-full transition-all" style="width:' + stockPct + '%"></div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="p-4 pt-0">' +
-          '<a href="../customer/index.html" class="block w-full text-center py-2.5 px-4 rounded-lg font-medium bg-amber-500 text-white hover:bg-amber-600">お店に行って購入する</a>' +
-        '</div>';
+      card.className = 'bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col cursor-pointer hover:border-amber-400 transition-colors';
+      
+      // アコーディオンの開閉を制御するためのID
+      const detailsId = 'details-' + index;
+
+      // 2. 詳細部分（賞味期限ごとのリスト）のHTMLを組み立てる
+      let detailsHtml = '<div class="bg-slate-50 p-3 space-y-2 border-t border-slate-100">';
+      p.batches.forEach(batch => {
+          const currentPrice = calculateCurrentPrice(p.original_price, p.min_price, batch.expiry_time);
+          const discountAmount = p.original_price - currentPrice;
+          
+          let statusText = batch.remainingMinutes < 0 ? '<span class="text-red-500 font-bold">期限切れ</span>' : `残り ${batch.remainingMinutes}分`;
+
+          detailsHtml += `
+            <div class="flex justify-between items-center bg-white p-2 rounded border border-slate-200 text-sm">
+                <div>
+                    <div class="font-medium text-slate-700">期限: ${formatTime(batch.expiry_time)}</div>
+                    <div class="text-xs text-slate-500">${statusText}</div>
+                </div>
+                <div class="text-right">
+                    <div class="font-bold text-amber-600">${currentPrice}円 <span class="text-xs text-slate-400 line-through">${p.original_price}円</span></div>
+                    <div class="text-xs text-emerald-600 font-medium">(${discountAmount}円 おトク!)</div>
+                </div>
+                <div class="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-xs font-bold">
+                    残り ${batch.count}個
+                </div>
+            </div>
+          `;
+      });
+      detailsHtml += '</div>';
+
+      // 3. カード全体のHTMLをセット
+      card.innerHTML = `
+        <div class="p-4 flex-1 flex justify-between items-center" onclick="document.getElementById('${detailsId}').classList.toggle('hidden')">
+            <div>
+                ${isUrgent ? '<span class="text-xl" aria-hidden="true">⏳</span> ' : ''}
+                <h2 class="font-bold text-slate-800 text-lg inline-block">${escapeHtml(p.name)}</h2>
+                <div class="text-sm text-slate-500 mt-1">定価: ${p.original_price}円</div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs text-slate-500">総在庫</div>
+                <div class="text-2xl font-bold text-slate-700">${p.totalStock}<span class="text-sm font-normal"> 個</span></div>
+                <div class="text-xs text-amber-600 mt-1">▼ タップして詳細を見る</div>
+            </div>
+        </div>
+        <div id="${detailsId}" class="hidden">
+            ${detailsHtml}
+        </div>
+      `;
+      
       grid.appendChild(card);
     });
-  }
-
-  function escapeHtml(s) {
-    const div = document.createElement('div');
-    div.textContent = s;
-    return div.innerHTML;
   }
 
   function run() {
     fetchAndProcessItems()
       .then(render)
-      .catch(function() {
+      .catch(function(err) {
+        console.error(err);
         var grid = document.getElementById('product-grid');
         if (grid) grid.innerHTML = '<p class="text-slate-500 col-span-full">読み込みに失敗しました。</p>';
       });
