@@ -19,8 +19,8 @@
   const LERP_OLD = 0.7;
   const LERP_NEW = 0.25;
   const AR_TIMEOUT_MS = 2000;
-  /** バックエンドAPI（ローカル: uvicorn 等で 8000 番で起動） */
-  const API_BASE = 'http://localhost:8000/api/items';
+  /** バックエンドAPI */
+  const API_BASE = 'https://gerbera-backend-jb9g.onrender.com/api/items';
   const EXPIRY_UPDATE_INTERVAL_MS = 1000;
 
   /** 1x1透明PNG（プレースホルダー）。実画像は frontend/assets/ に置いてパスを差し替え可 */

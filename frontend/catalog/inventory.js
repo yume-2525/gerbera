@@ -1,7 +1,7 @@
 (function() {
   'use strict';
 
-  const API_BASE = 'http://localhost:8000/api/items';
+  const API_BASE = 'https://gerbera-backend-jb9g.onrender.com/api/items';
 
   /**
    * 賞味期限までの残り分数を計算
