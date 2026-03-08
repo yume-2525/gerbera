@@ -110,14 +110,37 @@
     return div.innerHTML;
   }
 
-  // 時間をフォーマットする（例: 14:30）
+  // 時間をフォーマットする（例: 03/08 14:30）
   function formatTime(isoString) {
     if (!isoString) return '';
     const date = new Date(isoString);
+    const mo = (date.getMonth() + 1).toString().padStart(2, '0'); // 月
+    const d = date.getDate().toString().padStart(2, '0');         // 日
     const h = date.getHours().toString().padStart(2, '0');
     const m = date.getMinutes().toString().padStart(2, '0');
-    return h + ':' + m;
+    return mo + '/' + d + ' ' + h + ':' + m;
   }
+
+  // --- ここから追加 ---
+  // 合計の「分」を「○日 ○時間 ○分」のテキストに変換する
+  function formatRemainingTime(totalMinutes) {
+    const days = Math.floor(totalMinutes / (24 * 60));
+    const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+    const minutes = totalMinutes % 60;
+
+    let timeText = "";
+    if (days > 0) {
+      timeText += days + "日 ";
+    }
+    if (hours > 0 || days > 0) { // 日数がある場合は、0時間でも表示する
+      timeText += hours + "時間 ";
+    }
+    timeText += minutes + "分";
+
+    return "残り " + timeText;
+  }
+  // --- ここまで追加 ---
+
 
   function render(products) {
     const grid = document.getElementById('product-grid');
@@ -147,7 +170,7 @@
           const currentPrice = calculateCurrentPrice(p.original_price, p.min_price, batch.expiry_time);
           const discountAmount = p.original_price - currentPrice;
           
-          let statusText = batch.remainingMinutes < 0 ? '<span class="text-red-500 font-bold">期限切れ</span>' : `残り ${batch.remainingMinutes}分`;
+          let statusText = batch.remainingMinutes < 0 ? '<span class="text-red-500 font-bold">期限切れ</span>' : formatRemainingTime(batch.remainingMinutes);
 
           detailsHtml += `
             <div class="flex justify-between items-center bg-white p-2 rounded border border-slate-200 text-sm">
