@@ -26,14 +26,30 @@
   /** 1x1透明PNG（プレースホルダー）。実画像は frontend/assets/ に置いてパスを差し替え可 */
   const PLACEHOLDER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   var _assetBase = (function() { return window.location.href.replace(/[^/]+$/, ''); })();
+  var _img = function(name) { return _assetBase + 'images/' + name; };
   const ASSET_URLS = {
     hotAura: PLACEHOLDER_PNG,
     cryingFace: _assetBase + 'images/icon_cry.png',
     syutyusen1: _assetBase + 'images/syutyusen-1.png',
-    syutyusen2: _assetBase + 'images/syutyusen-2.png'
+    syutyusen2: _assetBase + 'images/syutyusen-2.png',
+    ghost_move_right_1: _img('move_right-1.png'),
+    ghost_move_right_2: _img('move_right-2.png'),
+    ghost_move_left_1: _img('move_left-1.png'),
+    ghost_move_left_2: _img('move_left-2.png'),
+    ghost_move_up_1: _img('move_up-1.png'),
+    ghost_move_up_2: _img('move_up-2.png'),
+    ghost_move_down_1: _img('move_down-1.png'),
+    ghost_move_down_2: _img('move_down-2.png'),
+    ghost_wave_1: _img('wave-1.png'),
+    ghost_wave_2: _img('wave-2.png')
   };
   /** プリロード済み画像。drawSingleARTag で参照。毎フレーム new Image() 禁止。 */
-  const arAssets = { hotAura: null, cryingFace: null, syutyusen1: null, syutyusen2: null };
+  const arAssets = {
+    hotAura: null, cryingFace: null, syutyusen1: null, syutyusen2: null,
+    ghost_move_right_1: null, ghost_move_right_2: null, ghost_move_left_1: null, ghost_move_left_2: null,
+    ghost_move_up_1: null, ghost_move_up_2: null, ghost_move_down_1: null, ghost_move_down_2: null,
+    ghost_wave_1: null, ghost_wave_2: null
+  };
 
   // --- Coordinate Logic ---
   let viewW = 0, viewH = 0;
@@ -155,6 +171,22 @@
   const TAG_HEIGHT = 108;
   /** 集中線画像の表示サイズ（タグ基準の倍率）。大きくするなら 1.5〜2、小さくするなら 0.8 など */
   const SYUTYUSEN_SIZE_RATIO = 1.2;
+  /** おばけAR: 表示サイズ(px)、追従速度・徘徊速度(px/フレーム)、到達判定(px)、タグ横オフセット(px)、パタパタ間隔(ms) */
+  const GHOST_SIZE = 56;
+  const GHOST_SPEED_TRACKING = 2.0;
+  const GHOST_SPEED_WANDERING = 0.8;
+  const GHOST_REACH_DIST = 22;
+  const GHOST_TAG_OFFSET = 85;
+  const GHOST_FLIP_MS = 250;
+  const GHOST_WANDER_MARGIN = 40;
+  const GHOST_WANDER_WAIT_MS = 2500;
+  /** 永続おばけの状態（1体のみ、wandering / tracking / waving） */
+  const ghost = {
+    screenX: 0, screenY: 0, state: 'wandering',
+    targetX: 0, targetY: 0, reachedAt: null,
+    trackingEntryId: null, targetSide: null,
+    dir: 'down', spawned: false
+  };
 
   /**
    * 円形を描画。中心(x,y)、半径radius、塗りfillColor、枠strokeColor、枠太さstrokeWidth。
@@ -525,11 +557,139 @@
     overlayCtx.restore();
   }
 
+  function getGhostMoveDir(dx, dy) {
+    if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? 'right' : 'left';
+    return dy > 0 ? 'down' : 'up';
+  }
+
+  function updateGhost() {
+    if (!ghost.spawned) {
+      ghost.screenX = viewW / 2;
+      ghost.screenY = viewH;
+      ghost.state = 'wandering';
+      ghost.targetX = GHOST_WANDER_MARGIN + Math.random() * (viewW - 2 * GHOST_WANDER_MARGIN);
+      ghost.targetY = GHOST_WANDER_MARGIN + Math.random() * (viewH - 2 * GHOST_WANDER_MARGIN);
+      ghost.spawned = true;
+    }
+    var urgentEntry = null;
+    for (var e of activeProducts.values()) {
+      if (e.remainingMinutes != null && e.remainingMinutes < 60) { urgentEntry = e; break; }
+    }
+    var gx = ghost.screenX;
+    var gy = ghost.screenY;
+    var now = performance.now();
+    var half = GHOST_SIZE / 2;
+    var minX = half;
+    var maxX = Math.max(minX, viewW - half);
+    var minY = half;
+    var maxY = Math.max(minY, viewH - half);
+
+    if (!urgentEntry) {
+      if (ghost.state === 'tracking' || ghost.state === 'waving') {
+        ghost.state = 'wandering';
+        ghost.targetX = GHOST_WANDER_MARGIN + Math.random() * (viewW - 2 * GHOST_WANDER_MARGIN);
+        ghost.targetY = GHOST_WANDER_MARGIN + Math.random() * (viewH - 2 * GHOST_WANDER_MARGIN);
+        ghost.reachedAt = null;
+        ghost.trackingEntryId = null;
+        ghost.targetSide = null;
+      }
+      if (ghost.state === 'wandering') {
+        if (ghost.reachedAt != null) {
+          if (now - ghost.reachedAt >= GHOST_WANDER_WAIT_MS) {
+            ghost.targetX = GHOST_WANDER_MARGIN + Math.random() * (viewW - 2 * GHOST_WANDER_MARGIN);
+            ghost.targetY = GHOST_WANDER_MARGIN + Math.random() * (viewH - 2 * GHOST_WANDER_MARGIN);
+            ghost.reachedAt = null;
+          }
+        } else {
+          var dx = ghost.targetX - gx;
+          var dy = ghost.targetY - gy;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < GHOST_REACH_DIST) {
+            ghost.reachedAt = now;
+          } else if (dist > 0) {
+            ghost.screenX = gx + (dx / dist) * GHOST_SPEED_WANDERING;
+            ghost.screenY = gy + (dy / dist) * GHOST_SPEED_WANDERING;
+            ghost.dir = getGhostMoveDir(dx, dy);
+          }
+        }
+      }
+    } else {
+      var tagCenterX = urgentEntry.smoothedCenterX;
+      var tagCenterY = urgentEntry.smoothedCenterY + TAG_OFFSET_Y;
+      var angle = urgentEntry.smoothedAngle || 0;
+      var targetRightX = tagCenterX + GHOST_TAG_OFFSET * Math.cos(angle);
+      var targetRightY = tagCenterY + GHOST_TAG_OFFSET * Math.sin(angle);
+      var targetLeftX = tagCenterX - GHOST_TAG_OFFSET * Math.cos(angle);
+      var targetLeftY = tagCenterY - GHOST_TAG_OFFSET * Math.sin(angle);
+      var tx, ty;
+      if (ghost.state === 'waving' && ghost.trackingEntryId === urgentEntry.id) {
+        ghost.trackingEntryId = urgentEntry.id;
+        tx = ghost.targetSide === 'left' ? targetLeftX : targetRightX;
+        ty = ghost.targetSide === 'left' ? targetLeftY : targetRightY;
+        ghost.screenX = tx;
+        ghost.screenY = ty;
+        ghost.dir = 'wave';
+      } else if (ghost.state === 'tracking' && ghost.trackingEntryId === urgentEntry.id) {
+        tx = ghost.targetSide === 'left' ? targetLeftX : targetRightX;
+        ty = ghost.targetSide === 'left' ? targetLeftY : targetRightY;
+        var dx = tx - gx;
+        var dy = ty - gy;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < GHOST_REACH_DIST) {
+          ghost.state = 'waving';
+          ghost.screenX = tx;
+          ghost.screenY = ty;
+          ghost.dir = 'wave';
+        } else if (dist > 0) {
+          ghost.screenX = gx + (dx / dist) * GHOST_SPEED_TRACKING;
+          ghost.screenY = gy + (dy / dist) * GHOST_SPEED_TRACKING;
+          ghost.dir = getGhostMoveDir(dx, dy);
+        }
+      } else {
+        ghost.state = 'tracking';
+        ghost.trackingEntryId = urgentEntry.id;
+        ghost.targetSide = gx > tagCenterX ? 'right' : 'left';
+        tx = ghost.targetSide === 'left' ? targetLeftX : targetRightX;
+        ty = ghost.targetSide === 'left' ? targetLeftY : targetRightY;
+        var dx = tx - gx;
+        var dy = ty - gy;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < GHOST_REACH_DIST) {
+          ghost.state = 'waving';
+          ghost.screenX = tx;
+          ghost.screenY = ty;
+          ghost.dir = 'wave';
+        } else if (dist > 0) {
+          ghost.screenX = gx + (dx / dist) * GHOST_SPEED_TRACKING;
+          ghost.screenY = gy + (dy / dist) * GHOST_SPEED_TRACKING;
+          ghost.dir = getGhostMoveDir(dx, dy);
+        }
+      }
+    }
+    if (ghost.state === 'wandering') {
+      ghost.screenX = Math.max(minX, Math.min(maxX, ghost.screenX));
+      ghost.screenY = Math.max(minY, Math.min(maxY, ghost.screenY));
+    }
+  }
+
+  function drawGhost() {
+    if (!ghost.spawned) return;
+    var frame = (Math.floor(performance.now() / GHOST_FLIP_MS) % 2) + 1;
+    var dir = ghost.dir === 'wave' ? 'wave' : ghost.dir;
+    var key = 'ghost_' + (dir === 'wave' ? 'wave' : 'move_' + dir) + '_' + frame;
+    var img = arAssets[key];
+    if (img && img.complete && img.naturalWidth > 0) {
+      overlayCtx.drawImage(img, ghost.screenX - GHOST_SIZE / 2, ghost.screenY - GHOST_SIZE / 2, GHOST_SIZE, GHOST_SIZE);
+    }
+  }
+
   function drawAROverlay() {
     overlayCtx.clearRect(0, 0, viewW, viewH);
+    updateGhost();
     for (const entry of activeProducts.values()) {
       drawSingleARTag(entry);
     }
+    drawGhost();
   }
 
   // --- 購入モーダル・タップ判定 ---
