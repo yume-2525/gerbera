@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1, viewport-fit=cover" />
+  <title>RescuAR - 店舗×QR AR</title>
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- jsQR: QRコード検出ライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <style>
+    /* カメラ・Canvasを画面全体に重ねるためのベース */
+    html, body { margin: 0; padding: 0; overflow: hidden; touch-action: none; }
+    #app { position: relative; width: 100vw; height: 100vh; background: #000; }
+    /* 非表示のvideo・検出用canvasはレイアウトに影響させない */
+    #videoEl { display: none; }
+    #detectCanvas { position: absolute; left: -9999px; top: 0; }
+    /* カメラ表示用Canvas（videoの代わりにここに描画） */
+    #cameraCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+    /* ARオーバーレイ用Canvas（手前）。タップ判定のため pointer-events: auto */
+    #overlayCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: auto; }
+  </style>
+</head>
+<body class="bg-black">
+  <div id="app" class="w-full h-full relative">
+    
+    <a href="index.html" class="absolute top-4 left-4 z-50 bg-black/60 text-white px-4 py-2 rounded-full backdrop-blur-sm border border-white/30 font-medium flex items-center gap-1">
+      ← 戻る
+    </a>
+
+    <video id="videoEl" playsinline muted autoplay></video>
+    <!-- 背面カメラ映像用（非表示）。ストリームはここに流し、検出用・表示用Canvasに描画する -->
+    <video id="videoEl" playsinline muted autoplay></video>
+    <!-- 検出用Canvas（低解像度）。jsQRはこのImageDataを解析する。非表示 -->
+    <canvas id="detectCanvas"></canvas>
+    <!-- カメラ映像を表示するCanvas（videoの代わり。軽量に1枚で表示） -->
+    <canvas id="cameraCanvas"></canvas>
+    <!-- AR描画用オーバーレイ（赤枠・値札タグを描く） -->
+    <canvas id="overlayCanvas"></canvas>
+    <!-- ローディング表示（カメラ起動前） -->
+    <div id="loading" class="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+      <p class="text-white text-lg">カメラを起動しています...</p>
+    </div>
+
+    <!-- 購入確認モーダル -->
+    <div id="purchaseModal" class="hidden absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-4">
+      <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center">
+        <h2 id="purchaseModalTitle" class="text-lg font-bold text-slate-800 mb-3">購入しますか？</h2>
+        <p id="purchaseModalMessage" class="text-slate-600 mb-4"></p>
+        <div id="purchaseModalActions" class="space-y-2">
+          <button id="purchaseModalYes" type="button" class="w-full py-3 px-4 rounded-xl font-medium bg-red-500 text-white hover:bg-red-600">
+            はい（購入する）
+          </button>
+          <button id="purchaseModalNo" type="button" class="w-full py-3 px-4 rounded-xl font-medium bg-slate-200 text-slate-700 hover:bg-slate-300">
+            いいえ
+          </button>
+        </div>
+        <div id="purchaseModalBack" class="hidden mt-2">
+          <button id="purchaseModalBackBtn" type="button" class="w-full py-3 px-4 rounded-xl font-medium bg-slate-500 text-white hover:bg-slate-600">
+            スキャンに戻る
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
