@@ -27,7 +27,10 @@
   const PLACEHOLDER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const ASSET_URLS = {
     hotAura: PLACEHOLDER_PNG,
-    cryingFace: PLACEHOLDER_PNG
+    cryingFace: (function() {
+      var base = window.location.href.replace(/[^/]+$/, '');
+      return base + 'images/icon_cry.png';
+    })()
   };
   /** プリロード済み画像。drawSingleARTag で参照。毎フレーム new Image() 禁止。 */
   const arAssets = { hotAura: null, cryingFace: null };
@@ -486,13 +489,13 @@
       overlayCtx.fillText('残り' + productInfo.stock + '点！', bubbleX + bubbleW / 2, bubbleY + bubbleH / 2 + 5);
     }
 
-    // ----- 7. 期限間近：感情アイコンを枠外の右斜め上にピョコピョコで表示 -----
+    // ----- 7. 期限間近：感情アイコン（PNG）を値札の左上に縦方向ふわふわで表示 -----
     if (isUrgentTime) {
-      const bounce = Math.sin(performance.now() / 200) * 5;
-      const faceX = TAG_WIDTH + 10;
-      const faceY = -16 + bounce;
-      if (arAssets.cryingFace && arAssets.cryingFace.complete && arAssets.cryingFace.naturalWidth > 1) {
-        const faceSize = 28;
+      const floatY = Math.sin(performance.now() / 400) * 6;
+      const faceX = -20;
+      const faceY = -20 + floatY;
+      if (arAssets.cryingFace && arAssets.cryingFace.complete && arAssets.cryingFace.naturalWidth > 0) {
+        const faceSize = 64;
         overlayCtx.drawImage(arAssets.cryingFace, faceX - faceSize / 2, faceY - faceSize / 2, faceSize, faceSize);
       } else {
         overlayCtx.font = '22px sans-serif';
