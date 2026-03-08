@@ -96,7 +96,7 @@ def calculate_dynamic_price(item_data: dict, current_time: datetime) -> dict:
         return {
             "id": item_data["id"], "name": item_data["name"],
             "original_price": original_price, "current_price": 0,
-            "discount_rate": 0, "stock": 0, "status": "sold_out",
+            "discount_rate": 0, "stock": 0, "status": item_data.get("status", "purchased"), # ⭕️ DBの実際のステータスを返すか、purchasedにする
             "expiry_time": expiry_time.isoformat()
         }
 
@@ -109,7 +109,7 @@ def calculate_dynamic_price(item_data: dict, current_time: datetime) -> dict:
         status = "expired"
     elif t_hours >= T_hours:
         current_price = original_price
-        status = "normal"
+        status = "on_sale"      # ⭕️ 定価だけど販売中
     else:
         # 在庫に基づく指数アルファの計算（基準在庫を5とする）
         alpha = stock / 5.0
@@ -119,7 +119,7 @@ def calculate_dynamic_price(item_data: dict, current_time: datetime) -> dict:
         # 在庫連動型の割引計算
         current_price = min_price + (original_price - min_price) * ((t_hours / T_hours) ** alpha)
         current_price = math.floor(current_price / 10) * 10
-        status = "discounted"
+        status = "on_sale"      # ⭕️ 値引き中だけど販売中
 
     discount_rate = 0
     if original_price > 0 and current_price > 0 and status != "expired":
