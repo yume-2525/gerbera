@@ -25,15 +25,15 @@
 
   /** 1x1透明PNG（プレースホルダー）。実画像は frontend/assets/ に置いてパスを差し替え可 */
   const PLACEHOLDER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  var _assetBase = (function() { return window.location.href.replace(/[^/]+$/, ''); })();
   const ASSET_URLS = {
     hotAura: PLACEHOLDER_PNG,
-    cryingFace: (function() {
-      var base = window.location.href.replace(/[^/]+$/, '');
-      return base + 'images/icon_cry.png';
-    })()
+    cryingFace: _assetBase + 'images/icon_cry.png',
+    syutyusen1: _assetBase + 'images/syutyusen-1.png',
+    syutyusen2: _assetBase + 'images/syutyusen-2.png'
   };
   /** プリロード済み画像。drawSingleARTag で参照。毎フレーム new Image() 禁止。 */
-  const arAssets = { hotAura: null, cryingFace: null };
+  const arAssets = { hotAura: null, cryingFace: null, syutyusen1: null, syutyusen2: null };
 
   // --- Coordinate Logic ---
   let viewW = 0, viewH = 0;
@@ -153,6 +153,8 @@
   const TAG_OFFSET_Y = 0;
   const TAG_WIDTH = 200;
   const TAG_HEIGHT = 108;
+  /** 集中線画像の表示サイズ（タグ基準の倍率）。大きくするなら 1.5〜2、小さくするなら 0.8 など */
+  const SYUTYUSEN_SIZE_RATIO = 1.2;
 
   /**
    * 円形を描画。中心(x,y)、半径radius、塗りfillColor、枠strokeColor、枠太さstrokeWidth。
@@ -265,7 +267,8 @@
     overlayCtx.rotate(angle);
     overlayCtx.translate(-TAG_WIDTH / 2, -TAG_HEIGHT / 2);
 
-    const isUrgentTime = remainingMinutes !== null && remainingMinutes < 60;
+    const isUrgentTime = remainingMinutes !== null && remainingMinutes < 180;
+    const isVeryUrgentTime = remainingMinutes !== null && remainingMinutes < 60;
     const lowStock = productInfo && productInfo.stock !== undefined && productInfo.stock <= 3;
     const discountRate = (productInfo && productInfo.discount_rate != null) ? Math.round(productInfo.discount_rate) : 0;
     const hasDiscount = discountRate > 0;
@@ -316,6 +319,20 @@
         overlayCtx.stroke();
       }
       overlayCtx.restore();
+    }
+
+    // ----- 0c. 消費期限残り1時間未満：集中線画像をタグ背面に1秒ごと点滅 -----
+    if (isVeryUrgentTime) {
+      const syutyusenImg = (Math.floor(performance.now() / 1000) % 2 === 0 ? arAssets.syutyusen1 : arAssets.syutyusen2);
+      if (syutyusenImg && syutyusenImg.complete && syutyusenImg.naturalWidth > 0) {
+        const cx = TAG_WIDTH / 2;
+        const cy = TAG_HEIGHT / 2;
+        const size = Math.max(TAG_WIDTH, TAG_HEIGHT) * SYUTYUSEN_SIZE_RATIO;
+        overlayCtx.save();
+        overlayCtx.globalAlpha = 0.9;
+        overlayCtx.drawImage(syutyusenImg, cx - size / 2, cy - size / 2, size, size);
+        overlayCtx.restore();
+      }
     }
 
     // ----- 1. 立体感：ドロップシャドウ（タグの右下にずらした半透明の黒） -----
