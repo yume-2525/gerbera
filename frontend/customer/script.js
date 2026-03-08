@@ -171,8 +171,9 @@
   const TAG_HEIGHT = 108;
   /** 集中線画像の表示サイズ（タグ基準の倍率）。大きくするなら 1.5〜2、小さくするなら 0.8 など */
   const SYUTYUSEN_SIZE_RATIO = 1.2;
-  /** おばけAR: 表示サイズ(px)、追従速度・徘徊速度(px/フレーム)、到達判定(px)、タグ横オフセット(px)、パタパタ間隔(ms) */
+  /** おばけAR: 表示サイズ(px)。徘徊時は GHOST_SIZE_WANDERING で少し大きく表示 */
   const GHOST_SIZE = 56;
+  const GHOST_SIZE_WANDERING = 76;
   const GHOST_SPEED_TRACKING = 2.0;
   const GHOST_SPEED_WANDERING = 0.8;
   const GHOST_REACH_DIST = 22;
@@ -573,12 +574,12 @@
     }
     var urgentEntry = null;
     for (var e of activeProducts.values()) {
-      if (e.remainingMinutes != null && e.remainingMinutes < 60) { urgentEntry = e; break; }
+      if (e.remainingMinutes != null && e.remainingMinutes < 180) { urgentEntry = e; break; }
     }
     var gx = ghost.screenX;
     var gy = ghost.screenY;
     var now = performance.now();
-    var half = GHOST_SIZE / 2;
+    var half = (ghost.state === 'wandering' ? GHOST_SIZE_WANDERING : GHOST_SIZE) / 2;
     var minX = half;
     var maxX = Math.max(minX, viewW - half);
     var minY = half;
@@ -674,12 +675,13 @@
 
   function drawGhost() {
     if (!ghost.spawned) return;
+    var size = ghost.state === 'wandering' ? GHOST_SIZE_WANDERING : GHOST_SIZE;
     var frame = (Math.floor(performance.now() / GHOST_FLIP_MS) % 2) + 1;
     var dir = ghost.dir === 'wave' ? 'wave' : ghost.dir;
     var key = 'ghost_' + (dir === 'wave' ? 'wave' : 'move_' + dir) + '_' + frame;
     var img = arAssets[key];
     if (img && img.complete && img.naturalWidth > 0) {
-      overlayCtx.drawImage(img, ghost.screenX - GHOST_SIZE / 2, ghost.screenY - GHOST_SIZE / 2, GHOST_SIZE, GHOST_SIZE);
+      overlayCtx.drawImage(img, ghost.screenX - size / 2, ghost.screenY - size / 2, size, size);
     }
   }
 
