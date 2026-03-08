@@ -2,60 +2,70 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>店舗管理 - 商品登録</title>
+    <title>店舗管理 - 商品登録・在庫管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body class="bg-gray-100 p-8">
-    <div class="max-w-6xl mx-auto flex flex-col lg:flex-row gap-8">
+    
+    <div class="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
         
-        <div class="w-full lg:w-1/3 bg-white p-6 rounded-lg shadow-md h-fit">
-            <h1 class="text-2xl font-bold mb-6">新規商品登録</h1>
+        <div class="w-full lg:w-1/3 bg-white p-6 rounded-lg shadow-md h-fit border-t-4 border-blue-500">
+            <h1 class="text-2xl font-bold mb-6 flex items-center gap-2">
+                <span>📝</span> 新規商品登録
+            </h1>
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium">商品名</label>
-                    <input type="text" id="name" list="item-name-list" class="w-full border p-2 rounded" placeholder="商品名を入力または選択">
+                    <label class="block text-sm font-medium text-gray-700">商品名</label>
+                    <input type="text" id="name" list="item-name-list" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="商品名を入力または選択">
                     <datalist id="item-name-list"></datalist>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-sm font-medium">定価 (円)</label>
-                        <input type="number" id="original_price" class="w-full border p-2 rounded" value="800">
+                        <label class="block text-sm font-medium text-gray-700">定価 (円)</label>
+                        <input type="number" id="original_price" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" value="800">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium">底値 (円)</label>
-                        <input type="number" id="min_price" class="w-full border p-2 rounded" value="400">
+                        <label class="block text-sm font-medium text-gray-700">底値 (円)</label>
+                        <input type="number" id="min_price" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" value="400">
                     </div>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium">在庫数</label>
-                    <input type="number" id="stock" class="w-full border p-2 rounded" value="10">
+                    <label class="block text-sm font-medium text-gray-700">在庫数</label>
+                    <input type="number" id="stock" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" value="10">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium">消費期限</label>
-                    <input type="datetime-local" id="expiry_time" class="w-full border p-2 rounded">
+                    <label class="block text-sm font-medium text-gray-700">消費期限</label>
+                    <input type="datetime-local" id="expiry_time" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
                 
-                <button type="button" id="registerBtn" onclick="registerItem(event)" class="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 transition">
+                <button type="button" id="registerBtn" onclick="registerItem(event)" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-all shadow-lg active:transform active:scale-95">
                     登録してQRコードを発行
                 </button>
             </div>
         </div>
 
-        <div id="resultArea" class="w-full lg:w-2/3 bg-white p-6 rounded-lg shadow-md hidden">
-            <div class="flex flex-col sm:flex-row justify-between items-center mb-6 border-b pb-4">
-                <p class="text-green-600 font-bold text-xl mb-4 sm:mb-0">登録完了！ラベルを印刷してください</p>
-                <button type="button" onclick="downloadPDF()" class="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600 font-bold shadow transition">
-                    ラベルをPDFで保存する
+        <div class="w-full lg:w-2/3 bg-white p-6 rounded-lg shadow-md border-t-4 border-slate-700">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <span>📦</span> 在庫管理（販売中）
+                </h2>
+                <button onclick="loadInventory()" class="bg-slate-100 text-slate-600 border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-200 font-bold text-sm transition-all flex items-center gap-2">
+                    <span>🔄</span> 更新
                 </button>
             </div>
-            <div id="qrcodeContainer" class="flex flex-wrap gap-4 justify-center sm:justify-start">
+            
+            <div id="inventoryContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <p class="text-gray-500 col-span-full font-bold text-center py-10">在庫データを読み込んでいます...</p>
             </div>
         </div>
         
     </div>
+
+    <div id="qrcodeContainer" style="position: absolute; left: -9999px; top: 0;"></div>
+
     <script src="script.js"></script>
 </body>
 </html>
